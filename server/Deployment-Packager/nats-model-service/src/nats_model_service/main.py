@@ -9,25 +9,23 @@ from nats.errors import TimeoutError, NoRespondersError
 from nats.js.api import RetentionPolicy
 
 
-# Determine project root
+# Determine project root and folders relative to the project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
-# Define folders relative to the project root
 RAW_DIR = PROJECT_ROOT / "raw_data"
 ZIP_DIR = PROJECT_ROOT / "zipped_data"
 
-# NATS Settings
+# NATS Config
 NATS_URL = "nats://localhost:4222"
 STREAM_NAME = "MODELS"
 MAX_MSG_SIZE = 8 * 1024 * 1024  # 8 MB
 
-# --- Set DEVICE ID here ---
+# DEVICE Config
 DEVICE_ID = "my_device_01"
 SUBJECT = f"models.update.{DEVICE_ID}"
 
 
 async def ensure_stream(js):
-    """Create the stream if it doesn't exist, and handle errors robustly."""
+    """[INFO] Create the stream if it doesn't exist, and handle errors."""
     try:
         streams = await js.streams_info()
     except TimeoutError as e:
@@ -88,7 +86,7 @@ async def publish_to_nats(zip_path: Path):
 
 
 def create_zip(folder: Path) -> Path:
-    """Create a ZIP archive from the given folder and place it in ZIP_DIR"""
+    """[INFO] Create a ZIP archive from the given folder and place it in ZIP_DIR"""
     ZIP_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = ZIP_DIR / f"{folder.name}.zip"
 
@@ -118,7 +116,7 @@ async def run(folder_name: str):
 
 def app():
     if len(sys.argv) < 2:
-        print("Usage: nats-model-service <folder_name>")
+        print(f"[INFO] Using <{folder_name}>")
         sys.exit(1)
 
     folder_name = sys.argv[1]
