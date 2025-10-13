@@ -1,0 +1,25 @@
+[project]
+name = "nats-analytical-receiver"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Your Name",email = "you@example.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "nats-py (>=2.11.0,<3.0.0)",
+    "aiofiles (>=24.1.0,<25.0.0)"
+]
+
+[tool.poetry]
+packages = [{include = "nats_analytical_receiver", from = "src"}]
+
+
+[tool.poetry.scripts]
+nats-analytical-receiver = "nats_analytical_receiver.main:run_main"
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

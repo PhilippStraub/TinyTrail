@@ -10,11 +10,12 @@ This is a pyhton poetry project, this requires:
 
 ## Operational flow
 1. Execute the project
-2. Service will connect to NATS Jetstream, listening to the "ANALYSIS" Stream to the subject "analysis.logs"
+2. Service will connect to NATS Jetstream, continuously listening to the "ANALYSIS" Stream to the subject "analysis.logs"
 3. Received messages contain the sender's device ID
 4. Device ID folder for the device will be created in the folder "analytical-data-received" 
 5. All messages received from that device are stored inside
-! Pay attentention to the amount of data in these folders!
+6. Terminate terminal with "STRG + C" on Windows
+**! Pay attentention to the amount of data in these folders!**
 
 
 ## Execution
