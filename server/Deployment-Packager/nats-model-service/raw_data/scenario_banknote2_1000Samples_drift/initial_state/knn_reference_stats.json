@@ -1,0 +1,56 @@
+{
+    "reference_mean": 15.717151568833739,
+    "reference_std": 9.603310823511567,
+    "min_distance": 0.041687775403261185,
+    "max_distance": 66.56012725830078,
+    "sample_count": 1000,
+    "class_statistics": {
+        "negative": {
+            "mean": 0.33561605187132953,
+            "std": 0.11160229731532458,
+            "min": 0.041687775403261185,
+            "max": 0.7995291948318481,
+            "count": 200
+        },
+        "battery": {
+            "mean": 20.414684233665465,
+            "std": 5.772218417455178,
+            "min": 12.509008407592773,
+            "max": 45.4188117980957,
+            "count": 200
+        },
+        "usbstick": {
+            "mean": 19.57899757862091,
+            "std": 4.966664887617303,
+            "min": 11.767814636230469,
+            "max": 37.65278625488281,
+            "count": 200
+        },
+        "leaf": {
+            "mean": 20.55421860218048,
+            "std": 6.612568041454757,
+            "min": 10.535147666931152,
+            "max": 49.87510299682617,
+            "count": 200
+        },
+        "coin": {
+            "mean": 17.702241377830504,
+            "std": 7.647418877609554,
+            "min": 10.813313484191895,
+            "max": 66.56012725830078,
+            "count": 200
+        }
+    },
+    "generation_timestamp": "2025-09-04T16:17:36.043222",
+    "description": "Reference statistics for KNNDistanceMonitor based on 2000 balanced samples",
+    "model_path": "/workspaces/on-device-drift-detection-main/examples/python_examples/scenario_banknote2_1000Samples_drift/model/model_object.tflite",
+    "knn_k": 5,
+    "feature_dimension": 256,
+    "classes": [
+        "negative",
+        "usbstick",
+        "leaf",
+        "battery",
+        "coin"
+    ]
+}
