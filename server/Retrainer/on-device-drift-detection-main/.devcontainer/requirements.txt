@@ -1,0 +1,22 @@
+# Devcontainer pinned deps to match Pi runtime/training where possible
+
+# Core
+numpy==1.24.2
+
+# ML / training
+tensorflow==2.15.0
+scikit-learn==1.4.2
+
+# TFLite runtime (2.14.0 is latest available for Python 3.11 on ARM64)
+tflite-runtime==2.14.0
+
+# Vision
+opencv-python-headless==4.9.0.80
+Pillow==10.3.0
+
+# System / utils
+psutil==5.9.8
+
+# Optional training extras
+scipy==1.12.0
+matplotlib==3.8.4
