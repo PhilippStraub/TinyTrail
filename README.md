@@ -1,5 +1,4 @@
-# TinyMLOps Framework - PRIVATE USE EXCLUSIVE
-
+# TinyMLOps Framework - private use exclusive 
 Detailed Architecture Overview:
 <p align="center">
   <img src="./Framework-detailed.png" alt="Framework Overview" width="600">
