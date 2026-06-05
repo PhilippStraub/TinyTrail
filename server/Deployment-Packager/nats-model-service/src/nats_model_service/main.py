@@ -116,8 +116,19 @@ async def run(folder_name: str):
 
 def app():
     if len(sys.argv) < 2:
-        print(f"[INFO] Using <{folder_name}>")
+        print("Usage:")
+        print("  python main.py <folder_name>")
+        print()
+        print("Example:")
+        print("  python main.py scenario_cifar10_knn_benchmark")
+        print()
+        print("Expected folder:")
+        print(f"  {RAW_DIR}/<folder_name>")
         sys.exit(1)
 
     folder_name = sys.argv[1]
     asyncio.run(run(folder_name))
+
+
+if __name__ == "__main__":
+    app()
