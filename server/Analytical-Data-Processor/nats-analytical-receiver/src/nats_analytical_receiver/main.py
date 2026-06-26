@@ -6,7 +6,7 @@ import aiofiles
 from nats.aio.client import Client as NATS
 
 # Config
-NATS_URL = "nats://192.168.188.41:4222"
+NATS_URL = "nats://localhost:4222"
 ANALYSIS_STREAM_NAME = "ANALYSIS"
 ANALYSIS_SUBJECT_PREFIX = "analysis.logs"
 OUTPUT_DIR = Path("analytical-data-received")

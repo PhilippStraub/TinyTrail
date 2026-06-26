@@ -31,7 +31,7 @@ BASE_DIR = Path.home() / "tinysphere-deployment-pipeline"
 DEPLOYMENTS_DIR = BASE_DIR / "deployments"
 CONFIG_DIR = BASE_DIR / "config"
 DELETE_OLD = True
-NATS_URL = "nats://192.168.188.41:4222"  # JetStream Broker
+NATS_URL = "nats://192.168.178.62:4222"  # JetStream Broker
 STREAM_NAME = "MODELS"
 MAX_MSG_SIZE = 8 * 1024 * 1024  # 8 MB
 SUBJECT_PREFIX = "models.update"
@@ -313,7 +313,21 @@ async def start_consumer(device_id, deployment_manager):
             logging.info("Performing scheduled log transmission...")
             await log_transmitter.transmit_logs(deployment_manager.current_path)
 
+    # Watch for natural process completion and transmit logs immediately
+    async def watch_process_completion():
+        while True:
+            await asyncio.sleep(10)
+            proc = deployment_manager.current_process
+            path = deployment_manager.current_path
+            if proc is not None and not proc.is_alive() and path is not None:
+                logging.info("[ProcessWatcher] Inference process finished. Transmitting logs immediately...")
+                deployment_manager.current_process = None
+                deployment_manager.current_path = None
+                await log_transmitter.transmit_logs(path)
+                logging.info("[ProcessWatcher] Log transmission complete.")
+
     transmission_task = asyncio.create_task(periodic_log_transmission())
+    completion_watcher_task = asyncio.create_task(watch_process_completion())
 
     try:
         while True:

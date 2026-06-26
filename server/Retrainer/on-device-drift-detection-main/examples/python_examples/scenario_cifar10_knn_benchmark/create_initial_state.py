@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import sys
@@ -75,6 +76,23 @@ OUTPUT_STATE_DIR = current_dir / "initial_state"  # Scenario initial_state direc
 OUTPUT_STATE_FILENAME = "knn_initial_state_objects.json"  # Zustandsdatei
 OUTPUT_REFERENCE_STATS_FILENAME = "knn_reference_stats.json"  # Datei für die Referenzstatistiken
 # --- ENDE KONFIGURATION ---
+
+# Interpreter-Cache: einmal erstellen, über alle Experimente wiederverwenden, damit
+# ein Benchmark-Sweep den TensorFlow-Import / die Interpreter-Allokation nur EINMAL zahlt.
+_INTERPRETER = None
+
+def get_interpreter():
+    """Return a cached TFLite interpreter (created and tensors allocated once)."""
+    global _INTERPRETER
+    if _INTERPRETER is None:
+        if TF_AVAILABLE:
+            _INTERPRETER = tf.lite.Interpreter(model_path=MODEL_PATH)
+        elif TFLITE_RUNTIME_AVAILABLE:
+            _INTERPRETER = TFLiteInterpreter(model_path=MODEL_PATH)
+        else:
+            raise ImportError("Weder TensorFlow noch tflite_runtime ist verfügbar. Bitte installiere eines davon.")
+        _INTERPRETER.allocate_tensors()
+    return _INTERPRETER
 
 def preprocess_image_for_feature_extraction(image_path: Path, target_size: tuple) -> np.ndarray:
     """Lädt und resized ein Bild für die Feature-Extraktion (RGB uint8)."""
@@ -302,30 +320,40 @@ def calculate_knn_distance_statistics_from_knn(knn_instance):
         "generation_timestamp": datetime.now().isoformat(),
     }
 
-def main():
+def build_initial_state(samples_per_class=None, seed=42, no_pca=False,
+                        feature_processor_path=None, output_dir=None,
+                        interpreter=None):
+    """Build and save the initial KNN state for one experiment.
+
+    Importable and reusable in-process: a benchmark sweep can call this repeatedly
+    while paying the TensorFlow import only once (the interpreter is cached via
+    get_interpreter()). The CLI entry point main() preserves standalone behavior.
+    """
+
+    # Resolve paths from args (fall back to module-level defaults)
+    output_state_dir = output_dir if output_dir else OUTPUT_STATE_DIR
+    feature_processor_path = feature_processor_path if feature_processor_path else FEATURE_PROCESSOR_PATH
+
     print("=" * 50)
     print("Creating initial KNN state for CIFAR-10")
     print("Classes:", list(CLASSES.keys()))
+    if samples_per_class:
+        print(f"Samples/class: {samples_per_class}")
+    print(f"PCA: {'disabled' if no_pca else 'enabled'}")
     print("=" * 50)
-    # Reproduzierbarkeit für Balancing
-    try:
-        np.random.seed(42)
-    except Exception:
-        pass
+    # Reproducible reference sample selection
+    np.random.seed(seed)
+    print(f"Random seed: {seed}")
     # Ensure output directory exists
-    OUTPUT_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    output_state_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Initialisiere TFLite Interpreter
     print(f"Initialisiere TFLite Interpreter mit Modell: {MODEL_PATH}")
     
     # Lade das Model mit dem korrekten Interpreter
-    if TF_AVAILABLE:
-        interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
-    elif TFLITE_RUNTIME_AVAILABLE:
-        interpreter = TFLiteInterpreter(model_path=MODEL_PATH)
-    else:
-        raise ImportError("Weder TensorFlow noch tflite_runtime ist verfügbar. Bitte installiere eines davon.")
-    
+    if interpreter is None:
+        interpreter = get_interpreter()
+
     interpreter.allocate_tensors()
     
     # Hole Input- und Output-Details
@@ -393,26 +421,40 @@ def main():
 
     print("Extrahiere Features aus initialen Bildern...")
 
-    # Lade Feature-Transformer (StandardScaler + PCA), falls vorhanden
+    # Lade Feature-Transformer (StandardScaler + PCA), falls vorhanden und nicht deaktiviert
     feature_transformer = None
-    try:
-        if os.path.exists(FEATURE_PROCESSOR_PATH):
-            print(f"Lade Feature-Transformer: {FEATURE_PROCESSOR_PATH}")
-            feature_transformer = StandardScalerPCATransformer(
-                processor_path=FEATURE_PROCESSOR_PATH,
-                strict=True
-            )
-    except Exception as e:
-        print(f"WARNUNG: Konnte Feature-Transformer nicht laden: {e}")
-        feature_transformer = None
-    for label_name, image_folder_path in CLASSES.items():
+    if not no_pca:
+        try:
+            if os.path.exists(feature_processor_path):
+                print(f"Lade Feature-Transformer: {feature_processor_path}")
+                feature_transformer = StandardScalerPCATransformer(
+                    processor_path=feature_processor_path,
+                    strict=True
+                )
+            else:
+                print(f"WARNUNG: Feature-Transformer nicht gefunden: {feature_processor_path}")
+        except Exception as e:
+            print(f"WARNUNG: Konnte Feature-Transformer nicht laden: {e}")
+            feature_transformer = None
+    else:
+        print("PCA deaktiviert (--no-pca). Verwende rohe TFLite-Features.")
+    for ci, (label_name, image_folder_path) in enumerate(CLASSES.items()):
         if not image_folder_path.is_dir():
             print(f"WARNUNG: Ordner für Klasse '{label_name}' nicht gefunden: {image_folder_path}")
             continue
         
         image_count = 0
-        # Unterstütze mehrere Bildformate
-        image_files = list(image_folder_path.glob("*.jpg")) + list(image_folder_path.glob("*.png"))
+        # Unterstütze mehrere Bildformate. Sortiert für deterministische Auswahl.
+        image_files = sorted(image_folder_path.glob("*.jpg")) + sorted(image_folder_path.glob("*.png"))
+
+        # Nur die tatsächlich benötigten Samples extrahieren. Der train-Ordner hat
+        # 5000 Bilder/Klasse; ohne diese Vorauswahl würden pro Experiment alle 50k
+        # Features extrahiert und danach auf samples_per_class verworfen
+        # (50–2500x Mehraufwand). Pro Klasse seeded → über seed reproduzierbar.
+        if samples_per_class and len(image_files) > samples_per_class:
+            rng = np.random.default_rng(seed + ci)
+            keep = rng.choice(len(image_files), size=samples_per_class, replace=False)
+            image_files = [image_files[i] for i in sorted(keep)]
         
         if not image_files:
             print(f"WARNUNG: Keine Bilder im Ordner '{label_name}' gefunden: {image_folder_path}")
@@ -453,9 +495,17 @@ def main():
     print(f"Form der verarbeiteten Features: {initial_features_np.shape}")
 
     # 3. Initialisiere und trainiere den LightweightKNN
+    #
+    # IMPORTANT: max_samples must hold ALL reference samples we are about to add
+    # (samples_per_class × num_classes). The KNN evicts oldest-first (FIFO by
+    # timestamp) once it exceeds max_samples — with a too-small cap, the classes
+    # added first are silently dropped, leaving the model unable to predict them.
+    n_classes = len(CLASSES)
+    samples_per_class = samples_per_class if samples_per_class else KNN_MAX_SAMPLES // n_classes
+    knn_max_samples = samples_per_class * n_classes
     knn = LightweightKNN(
         k=KNN_K,
-        max_samples=KNN_MAX_SAMPLES,
+        max_samples=knn_max_samples,
         distance_metric=KNN_DISTANCE_METRIC
     )
 
@@ -500,9 +550,8 @@ def main():
     # um sicherzustellen, dass jede Klasse gleichmäßig vertreten ist
     print(f"Befülle KNN kontrolliert mit einer festen Anzahl von Samples pro Klasse")
     
-    # Limit pro Klasse = max_samples / Anzahl der Klassen
-    samples_per_class = KNN_MAX_SAMPLES // len(CLASSES)
-    print(f"Verwende {samples_per_class} Samples pro Klasse für insgesamt {samples_per_class * len(CLASSES)} Samples")
+    # samples_per_class + knn_max_samples were computed above (before KNN creation)
+    print(f"Verwende {samples_per_class} Samples pro Klasse für insgesamt {knn_max_samples} Samples")
     
     # Reorganisiere balanced_features_np nach Klassen
     features_by_class = {}
@@ -562,13 +611,13 @@ def main():
             "original_dimension": feature_dimension,  # Speichere auch die ursprüngliche Dimension
             "feature_processor": "StandardScaler + PCA(256)" if os.path.exists(FEATURE_PROCESSOR_PATH) else "None",
             "source_model": MODEL_PATH,
-            "sampling_seed": 42,
+            "sampling_seed": seed,
             "per_class_counts": per_class_counts,
             "selected_indices_per_class": selected_indices_per_class
         }
     }
     
-    output_file_path = OUTPUT_STATE_DIR / OUTPUT_STATE_FILENAME
+    output_file_path = output_state_dir / OUTPUT_STATE_FILENAME
     try:
         with open(output_file_path, 'w') as f:
             json.dump(state_to_save, f, indent=4)
@@ -593,7 +642,7 @@ def main():
         })
         
         # Speichere die Referenzstatistiken
-        reference_stats_path = OUTPUT_STATE_DIR / OUTPUT_REFERENCE_STATS_FILENAME
+        reference_stats_path = output_state_dir / OUTPUT_REFERENCE_STATS_FILENAME
         try:
             with open(reference_stats_path, 'w') as f:
                 json.dump(reference_stats, f, indent=4)
@@ -634,6 +683,28 @@ def main():
             print(f"FEHLER beim Speichern der Referenzstatistiken: {e}")
     else:
         print("Keine Referenzstatistiken berechnet oder gespeichert")
+
+def main():
+    parser = argparse.ArgumentParser(description="Create initial KNN state for benchmark")
+    parser.add_argument("--samples-per-class", type=int, default=None,
+                        help="Number of reference samples per class (default: max_samples/num_classes)")
+    parser.add_argument("--no-pca", action="store_true",
+                        help="Disable PCA feature transformation (raw TFLite features)")
+    parser.add_argument("--feature-processor-path", type=str, default=None,
+                        help="Path to a specific feature_processor.npz (overrides default)")
+    parser.add_argument("--output-dir", type=Path, default=None,
+                        help="Directory to save initial state files (default: ./initial_state)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for reproducible reference sample selection")
+    args = parser.parse_args()
+    build_initial_state(
+        samples_per_class=args.samples_per_class,
+        seed=args.seed,
+        no_pca=args.no_pca,
+        feature_processor_path=args.feature_processor_path,
+        output_dir=args.output_dir,
+    )
+
 
 if __name__ == "__main__":
     main()

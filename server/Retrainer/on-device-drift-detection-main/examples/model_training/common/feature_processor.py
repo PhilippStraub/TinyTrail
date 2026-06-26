@@ -259,7 +259,7 @@ def _collect_features(
             print(f"EXCLUDING {cname} (filtered)")
             continue
 
-        print(f"Processing {cname}…")
+        print(f"Processing {cname}...")
 
         imgs = _find_images(class_dir)
 
@@ -339,7 +339,7 @@ def _train_processor(
     scaler = StandardScaler()
     scaled = scaler.fit_transform(features)
 
-    print(f"Training PCA: {input_dim}D → {pca_components}D")
+    print(f"Training PCA: {input_dim}D -> {pca_components}D")
 
     pca = PCA(
         n_components=pca_components,

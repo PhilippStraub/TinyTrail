@@ -13,7 +13,15 @@ import time
 import threading
 import logging
 
-from tflite_runtime.interpreter import Interpreter
+try:
+    from tflite_runtime.interpreter import Interpreter
+except ImportError:
+    try:
+        import tensorflow as tf
+        Interpreter = tf.lite.Interpreter
+    except ImportError:
+        Interpreter = None
+
 from .qparams import get_qparams
 
 logger = logging.getLogger(__name__)
@@ -42,7 +50,8 @@ class TFLiteFeatureExtractor:
         lazy_loading: bool = True,
         input_shape: Optional[List[int]] = None,
         input_dtype: str = 'float32',
-        thread_safe: bool = True
+        thread_safe: bool = True,
+        num_threads: int = 1
     ):
         """Initialize the TFLite feature extractor.
         
@@ -58,6 +67,10 @@ class TFLiteFeatureExtractor:
             input_shape: Expected input shape (used for validation), e.g. [1, 224, 224, 3]
             input_dtype: Expected input data type ('float32', 'uint8', etc.)
             thread_safe: Whether to use thread locking for multi-threaded safety
+            num_threads: TFLite interpreter CPU threads. Pinned to 1 by default so
+                inference is single-threaded — matches the rover's duty-cycled
+                deployment and keeps CPU/energy benchmarks reproducible. Raising it
+                lets XNNPACK fan out across cores (and busy-spin between frames).
         """
         self.model_path = model_path
         self.feature_layer_index = feature_layer_index
@@ -69,6 +82,7 @@ class TFLiteFeatureExtractor:
         self.input_shape = input_shape
         self.input_dtype = input_dtype
         self.thread_safe = thread_safe
+        self.num_threads = num_threads
         
         # Model loading state
         self._interpreter: Optional[Interpreter] = None
@@ -120,7 +134,9 @@ class TFLiteFeatureExtractor:
             if not os.path.exists(self.model_path):
                 raise FileNotFoundError(f"TFLite model file not found: {self.model_path}")
                 
-            self._interpreter = Interpreter(model_path=self.model_path)
+            # num_threads pinned (default 1): single-threaded inference for
+            # reproducible, energy-honest measurements on the duty-cycled rover.
+            self._interpreter = Interpreter(model_path=self.model_path, num_threads=self.num_threads)
             
             self._interpreter.allocate_tensors()
             self._input_details = self._interpreter.get_input_details()

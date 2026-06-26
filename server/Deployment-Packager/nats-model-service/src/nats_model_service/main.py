@@ -14,8 +14,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 RAW_DIR = PROJECT_ROOT / "raw_data"
 ZIP_DIR = PROJECT_ROOT / "zipped_data"
 
-# NATS Config
-NATS_URL = "nats://localhost:4222"
+# NATS Config — override with NATS_URL env var (set by benchmark pipeline)
+NATS_URL = os.environ.get("NATS_URL", "nats://localhost:4222")
 STREAM_NAME = "MODELS"
 MAX_MSG_SIZE = 8 * 1024 * 1024  # 8 MB
 
