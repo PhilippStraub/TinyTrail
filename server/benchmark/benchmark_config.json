@@ -1,0 +1,24 @@
+{
+  "device_id": "my_device_01",
+  "nats_url": "nats://localhost:4222",
+
+  "result_timeout_seconds": 1800,
+
+  "pca_configs": [
+    { "enabled": true,  "components": 31 },
+    { "enabled": false }
+  ],
+
+  "samples_per_class": [2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+
+  "seeds": [42, 123, 456, 789, 1337, 2021, 3141, 2718, 1618, 9876],
+
+  "test_images_per_class": 20,
+
+  "power": {
+    "enabled": true,
+    "port": "COM3",
+    "rate": 5.0,
+    "baseline_power_w": 0.6140
+  }
+}
