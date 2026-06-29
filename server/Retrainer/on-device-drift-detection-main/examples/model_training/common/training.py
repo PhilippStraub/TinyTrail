@@ -103,14 +103,18 @@ def build_datasets(
     val_files: list[str] = []
     val_labels: list[int] = []
 
-    patterns = ("*.jpg", "*.jpeg", "*.png", "*.bmp")
+    # Match image extensions case-insensitively. pathlib.glob is case-sensitive
+    # even on case-insensitive filesystems, so a "*.jpeg" pattern would miss
+    # Imagenette's uppercase ".JPEG" files. Comparing suffix.lower() avoids that
+    # and stays backward compatible with the lowercase CIFAR files.
+    exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
     for class_idx, class_name in enumerate(include_classes):
         class_dir = data_dir / class_name
-        files: list[str] = []
-
-        for pat in patterns:
-            files.extend(sorted(str(p) for p in class_dir.glob(pat)))
+        files = sorted(
+            str(p) for p in class_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in exts
+        )
 
         rng.shuffle(files)
         n = len(files)

@@ -196,10 +196,15 @@ def _find_images(class_dir: Path) -> list[Path]:
     Important:
     Your CIFAR10 dataset uses PNG files, therefore '*.png' must be included.
     """
-    image_files: list[Path] = []
+    # Match extensions case-insensitively. pathlib.glob is case-sensitive even on
+    # case-insensitive filesystems, so the lowercase patterns would miss
+    # Imagenette's uppercase ".JPEG" files. Comparing suffix.lower() avoids that.
+    exts = {p.lstrip("*").lower() for p in SUPPORTED_IMAGE_PATTERNS}
 
-    for pattern in SUPPORTED_IMAGE_PATTERNS:
-        image_files.extend(sorted(class_dir.glob(pattern)))
+    image_files = sorted(
+        p for p in class_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in exts
+    )
 
     return image_files
 
