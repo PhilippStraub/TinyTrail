@@ -47,10 +47,7 @@ CLASS_NAMES = [
 # Default output = the scenario dataset dir the benchmark reads from, so both
 # create_initial_state.py (train/) and the pipeline's test sampling (test/) find it.
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_OUTPUT_DIR = (
-    SCRIPT_DIR
-    / "server/Retrainer/on-device-drift-detection-main/examples/dataset_cifar10"
-)
+DEFAULT_OUTPUT_DIR = SCRIPT_DIR  # creates train/ and test/ next to this script
 DOWNLOAD_DIR = SCRIPT_DIR / "downloads"
 
 EXPECTED_PER_CLASS = {"train": 5000, "test": 1000}
