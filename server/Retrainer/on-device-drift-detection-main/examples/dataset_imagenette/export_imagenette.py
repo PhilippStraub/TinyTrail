@@ -60,7 +60,7 @@ CLASS_NAMES = sorted(WNID_TO_CLASS.values())
 
 # Imagenette ships a train/ and a val/ split; we expose val/ as test/ to match
 # the CIFAR-10 layout (train/ for reference samples, test/ for held-out novelty).
-SRC_TO_DST_SPLIT = {"train": "train", "val": "tes1t"}
+SRC_TO_DST_SPLIT = {"train": "train", "val": "test"}
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR  # creates train/ and test/ next to this script
