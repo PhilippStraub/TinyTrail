@@ -50,6 +50,30 @@ def read_meas(ser: serial.Serial) -> dict:
             "V_out": v, "I_out": i, "P_out": p, "output": outp}
 
 
+def is_valid_meas(vals: dict) -> bool:
+    """Return True when the power supply answered with parseable V/I values."""
+    try:
+        float(vals.get("V_out", ""))
+        float(vals.get("I_out", ""))
+        float(vals.get("P_out", ""))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def read_valid_meas(ser: serial.Serial, retries: int = 3, delay_s: float = 0.1) -> dict:
+    """Read one valid measurement or raise after repeated blank/invalid replies."""
+    last_vals = None
+    for attempt in range(max(1, retries)):
+        vals = read_meas(ser)
+        if is_valid_meas(vals):
+            return vals
+        last_vals = vals
+        if attempt + 1 < retries:
+            time.sleep(delay_s)
+    raise RuntimeError(f"No valid DSP-3005 measurement received on serial link: {last_vals}")
+
+
 def read_context(ser: serial.Serial) -> dict:
     """Device identity, read once per run."""
     return {"device": query(ser, "*IDN?")}
@@ -94,6 +118,7 @@ class PowerLogger:
         self.device = None
         self.n_rows = 0
         self.error = None
+        self._pending_vals = None
 
     def start(self) -> None:
         # Start each experiment with a FRESH file. make_csv_writer() opens in
@@ -106,23 +131,39 @@ class PowerLogger:
             pass
         # Open serial up-front so a busy/missing port surfaces immediately
         # (and can be handled by the caller) rather than inside the thread.
-        self._ser = serial.Serial(self.port, BAUD, timeout=TIMEOUT)
-        time.sleep(0.1)
         try:
-            self.device = read_context(self._ser).get("device")
+            self._ser = serial.Serial(self.port, BAUD, timeout=TIMEOUT)
+            time.sleep(0.1)
+            try:
+                self.device = read_context(self._ser).get("device")
+            except Exception:
+                self.device = None
+            # Fail immediately if the port opens but the supply no longer answers.
+            # Otherwise the benchmark would create timestamp-only power CSVs.
+            self._pending_vals = read_valid_meas(self._ser)
+            self._f, self._writer = make_csv_writer(self.csv_path)
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
         except Exception:
-            self.device = None
-        self._f, self._writer = make_csv_writer(self.csv_path)
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
+            if self._ser is not None:
+                try:
+                    self._ser.close()
+                except Exception:
+                    pass
+                self._ser = None
+            raise
 
     def _run(self) -> None:
         flush_every = max(1, int(self.rate))
         while not self._stop.is_set():
             t0 = time.perf_counter()
             try:
-                vals = read_meas(self._ser)
+                if self._pending_vals is not None:
+                    vals = self._pending_vals
+                    self._pending_vals = None
+                else:
+                    vals = read_valid_meas(self._ser)
                 log_row(self._writer, vals)
                 self.n_rows += 1
                 if self.n_rows % flush_every == 0:

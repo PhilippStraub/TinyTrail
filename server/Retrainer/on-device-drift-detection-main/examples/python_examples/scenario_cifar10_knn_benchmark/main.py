@@ -404,10 +404,16 @@ def load_config(config_path: str) -> Dict:
         return json.load(f)
 
 
-def setup_logging(log_level: str = 'INFO', log_dir: str = './logs', run_id: Optional[str] = None) -> None:
+def setup_logging(
+    log_level: str = 'INFO',
+    log_dir: str = './logs',
+    run_id: Optional[str] = None,
+    console_log_level: str = 'ERROR',
+) -> None:
     global logger
 
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
+    numeric_console_level = getattr(logging, console_log_level.upper(), logging.ERROR)
 
     logs_dir = Path(log_dir)
     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -415,14 +421,16 @@ def setup_logging(log_level: str = 'INFO', log_dir: str = './logs', run_id: Opti
     run_id = run_id or datetime.now().strftime('%Y%m%d_%H%M%S')
     log_file = logs_dir / f"drift_detection_{run_id}.log"
 
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(numeric_level)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(numeric_console_level)
+
     # force=True prevents duplicate handlers if the script is restarted in the same Python process.
     logging.basicConfig(
-        level=numeric_level,
+        level=min(numeric_level, numeric_console_level),
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(),
-        ],
+        handlers=[file_handler, stream_handler],
         force=True,
     )
 
@@ -440,9 +448,9 @@ def create_directory_structure(config: Dict) -> None:
 
 def on_drift_detected(drift_info: Dict[str, Any], record: Dict[str, Any]) -> None:
     detector_name = drift_info.get('detector_type', 'Unknown') if drift_info else 'Unknown'
-    logger.warning(f'DRIFT DETECTED by {detector_name}')
-    logger.info(f'Drift info: {drift_info}')
-    if performance_logger and drift_info is not None:
+    logger.debug(f'DRIFT DETECTED by {detector_name}: {drift_info}')
+    log_drift_events = config['tinylcm']['data_logger'].get('log_drift_events', False)
+    if performance_logger and drift_info is not None and log_drift_events:
         performance_logger.log_drift_event(detector_name, 'knn_distance', drift_info)
 
 
@@ -488,7 +496,7 @@ def save_drift_image_if_needed(frame: np.ndarray, image_path: Path, frame_count:
     image_save_path = log_dir / f"drift_frame_{frame_count:06d}_{image_path.stem}.jpg"
     try:
         cv2.imwrite(str(image_save_path), frame)
-        logger.info(f'Drift frame saved: {image_save_path}')
+        logger.debug(f'Drift frame saved: {image_save_path}')
     except Exception as e:
         logger.error(f'Failed to save drift image: {e}')
 
@@ -835,6 +843,7 @@ def main() -> None:
         log_level=config['device']['log_level'],
         log_dir=log_dir,
         run_id=run_id,
+        console_log_level=config['device'].get('console_log_level', 'ERROR'),
     )
 
     create_directory_structure(config)
@@ -914,6 +923,7 @@ def main() -> None:
     inference_resolution = tuple(image_cfg.get('inference_resolution', [IMG_SIZE, IMG_SIZE]))
     per_image_delay_ms = int(image_cfg.get('delay_ms', config['application'].get('inference_interval_ms', 200)))
     frame_log_interval = tinylcm_config['data_logger'].get('frame_log_interval', 10)
+    verbose_frame_logging = tinylcm_config['data_logger'].get('verbose_frame_logging', False)
     json_log_file = Path(log_dir) / f"stream_{run_id}.jsonl"
     write_jsonl = bool(tinylcm_config['data_logger'].get('enabled', True))
 
@@ -1019,27 +1029,28 @@ def main() -> None:
             latency_ms = (time.time() - inference_start_time) * 1000.0
             correct = (prediction == ground_truth) if ground_truth is not None else None
 
-            neigh = getattr(classifier, '_last_distances', []) or []
-            dists_fmt = ', '.join(
-                f'{float(d):.2f}' for d in (neigh[: classifier.k] if hasattr(classifier, 'k') else neigh)
-            )
-            dists_str = f'[{dists_fmt}]' if dists_fmt else '[]'
-            agg_dist = None
-            ref_mean = None
-            if drift_detectors:
-                dd = drift_detectors[0]
-                hist = getattr(dd, 'distance_history', None)
-                if hist and len(hist) > 0:
-                    agg_dist = float(list(hist)[-1])
-                ref_mean = getattr(dd, 'reference_mean', None)
+            if verbose_frame_logging:
+                neigh = getattr(classifier, '_last_distances', []) or []
+                dists_fmt = ', '.join(
+                    f'{float(d):.2f}' for d in (neigh[: classifier.k] if hasattr(classifier, 'k') else neigh)
+                )
+                dists_str = f'[{dists_fmt}]' if dists_fmt else '[]'
+                agg_dist = None
+                ref_mean = None
+                if drift_detectors:
+                    dd = drift_detectors[0]
+                    hist = getattr(dd, 'distance_history', None)
+                    if hist and len(hist) > 0:
+                        agg_dist = float(list(hist)[-1])
+                    ref_mean = getattr(dd, 'reference_mean', None)
 
-            logger.info(
-                f"Image {frame_count}/{len(image_source)}: path={image_path.name}, gt={ground_truth}, "
-                f"pred={prediction}, conf={confidence:.2f}, correct={correct}, kNN_dists={dists_str}, "
-                f"AggDist={(agg_dist if agg_dist is not None else float('nan')):.2f}, "
-                f"RefMean={(ref_mean if ref_mean is not None else float('nan')):.2f}, "
-                f"Latency={latency_ms:.1f}ms, Drift={drift_detected}"
-            )
+                logger.info(
+                    f"Image {frame_count}/{len(image_source)}: path={image_path.name}, gt={ground_truth}, "
+                    f"pred={prediction}, conf={confidence:.2f}, correct={correct}, kNN_dists={dists_str}, "
+                    f"AggDist={(agg_dist if agg_dist is not None else float('nan')):.2f}, "
+                    f"RefMean={(ref_mean if ref_mean is not None else float('nan')):.2f}, "
+                    f"Latency={latency_ms:.1f}ms, Drift={drift_detected}"
+                )
 
             if drift_detected:
                 if detected_record is not None:
@@ -1079,7 +1090,7 @@ def main() -> None:
 
             if frame_count % 100 == 0 or frame_count == len(image_source):
                 performance_logger.save()
-                logger.info(f'Performance summary: {performance_logger.get_summary()}')
+                logger.debug(f'Performance summary: {performance_logger.get_summary()}')
 
             if per_image_delay_ms > 0:
                 time.sleep(per_image_delay_ms / 1000.0)

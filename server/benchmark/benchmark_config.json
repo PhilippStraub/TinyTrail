@@ -2,11 +2,22 @@
   "device_id": "my_device_01",
   "nats_url": "nats://localhost:4222",
 
+  "experiment_names": [
+    "scenario_cifar10_kmeans",
+    "scenario_cifar10_knn_benchmark",
+    "scenario_cifar10_nearest_centroid",
+    "scenario_imagenette_nearest_centroid",
+    "scenario_imagenette_kmeans",
+    "scenario_imagenette_knn"
+  ],
+
   "result_timeout_seconds": 1800,
+  "abort_on_timeout": true,
+  "skip_completed": true,
 
   "pca_configs": [
-    { "enabled": true,  "components": 31 },
-    { "enabled": false }
+    { "enabled": true,  "explained_variance": 0.95 },
+    {"enabled": false}
   ],
 
   "samples_per_class": [2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
@@ -17,6 +28,7 @@
 
   "power": {
     "enabled": true,
+    "required": true,
     "port": "COM3",
     "rate": 5.0,
     "baseline_power_w": 0.6140

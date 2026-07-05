@@ -306,7 +306,7 @@ def _collect_features(
 def _train_processor(
     features: np.ndarray,
     *,
-    pca_components: int = DEFAULT_PCA_COMPONENTS,
+    pca_components: int | float = DEFAULT_PCA_COMPONENTS,
 ) -> dict:
     """
     Train StandardScaler and PCA on extracted features.
@@ -331,20 +331,30 @@ def _train_processor(
 
     max_valid_components = min(n_samples, input_dim)
 
-    if pca_components > max_valid_components:
+    requested_components = pca_components
+    target_variance = None
+
+    if isinstance(pca_components, float) and 0.0 < pca_components < 1.0:
+        target_variance = float(pca_components)
+    elif pca_components > max_valid_components:
         print(
             f"Requested PCA components={pca_components}, "
             f"but max valid is {max_valid_components}. "
             f"Using {max_valid_components} instead."
         )
-        pca_components = max_valid_components
+        pca_components = int(max_valid_components)
+    else:
+        pca_components = int(pca_components)
 
     print(f"Training StandardScaler on {features.shape}")
 
     scaler = StandardScaler()
     scaled = scaler.fit_transform(features)
 
-    print(f"Training PCA: {input_dim}D -> {pca_components}D")
+    if target_variance is not None:
+        print(f"Training PCA: {input_dim}D -> {target_variance * 100:.1f}% explained variance")
+    else:
+        print(f"Training PCA: {input_dim}D -> {pca_components}D")
 
     pca = PCA(
         n_components=pca_components,
@@ -352,7 +362,9 @@ def _train_processor(
     )
     pca.fit(scaled)
 
+    output_dim = int(getattr(pca, "n_components_", pca.components_.shape[0]))
     explained = float(np.sum(pca.explained_variance_ratio_) * 100.0)
+    print(f"PCA selected {output_dim} components")
     print(f"PCA explains {explained:.1f}% of variance")
 
     return {
@@ -360,7 +372,9 @@ def _train_processor(
         "inv_scale": (1.0 / scaler.scale_).astype(np.float32),
         "W": pca.components_.astype(np.float32),
         "input_dim": int(input_dim),
-        "output_dim": int(pca_components),
+        "output_dim": output_dim,
+        "requested_components": requested_components,
+        "target_explained_variance": target_variance if target_variance is not None else np.nan,
         "explained_variance": explained,
     }
 
@@ -372,7 +386,7 @@ def build_and_save_processor(
     output_dir: Path | str,
     exclude_classes: Optional[Sequence[str]] = None,
     img_size: int = DEFAULT_IMG_SIZE,
-    pca_components: int = DEFAULT_PCA_COMPONENTS,
+    pca_components: int | float = DEFAULT_PCA_COMPONENTS,
     max_samples: int = DEFAULT_MAX_SAMPLES,
     mirror_dirs: Optional[Iterable[Path | str]] = None,
     preprocessing: str = "lowres",
@@ -412,11 +426,14 @@ def build_and_save_processor(
     print(f"Saved processor: {processor_path}")
 
     if mirror_dirs:
+        processor_resolved = processor_path.resolve()
         for md in mirror_dirs:
             mdp = Path(md)
             mdp.mkdir(parents=True, exist_ok=True)
 
             dst = mdp / processor_path.name
+            if dst.resolve() == processor_resolved:
+                continue
             shutil.copy2(processor_path, dst)
 
             print(f"Mirrored processor to: {dst}")

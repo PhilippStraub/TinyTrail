@@ -1,115 +1,88 @@
-# KNN Sweet-Spot Benchmark — Findings (CIFAR-10)
+# Multi-Scenario Benchmark Findings
 
-**Project:** Applied Machine Learning, DBE SS26 — *Analysis & identification of the sweet spot
-for the KNN sample size in the TinyMLOps framework.*
-**Hardware:** Raspberry Pi Zero 2W · external power via Voltcraft DSP-3005 (5 V rail).
-**Run:** 240 experiments — pipelines `nopca` and `pca31`, 12 sample sizes (2…100 / class),
-10 seeds each, 200-image CIFAR-10 **test split** (novelty) per run.
+**Project:** Applied Machine Learning, DBE SS26 - KNN/reference-sample sweet spot in the
+TinyMLOps framework.
+**Hardware:** Raspberry Pi Zero 2W with external power logging via Voltcraft DSP-3005 at the
+5 V rail.
+**Run:** 1440 completed experiments: 6 scenarios, 2 PCA modes, 12 sample sizes, 10 seeds.
 
-> Figures and numbers are generated from the final run by
-> [`analyze_benchmark.py`](analyze_benchmark.py) / [`benchmark_analysis.ipynb`](benchmark_analysis.ipynb).
-> See [`README.md`](README.md) for the measurement methodology (incl. the energy/charge derivation).
+Final generated export sets:
 
----
+- `exports/cifar10/analysis_20260701_230135/`
+- `exports/imagenet/analysis_20260701_230136/`
 
-## TL;DR — three headline findings
+The exports contain the full tables, figures, generated findings, and the project-requirements
+checklists used for the write-up.
 
-1. **Diminishing returns are steep.** The first ~10 reference samples/class buy ~95% of the
-   attainable accuracy; everything beyond ~30 is within noise.
-2. **PCA is worth it.** 160→31 dimensions keeps **95.1%** of the variance, *slightly improves*
-   accuracy (statistically significant), and cuts reference-set memory **5.2×** — at no energy or
-   CPU cost.
-3. **Inference is energy-cheap.** A full ~200-image run costs ~**0.49 mAh** net (~**2.2 mAh**
-   gross @ 5 V); the Pi's idle draw, not the classifier, dominates power.
+## Headline Answers
 
----
+1. **Reference-sample sweet spot:** the practical knee is early. CIFAR-10 reaches about 95% of
+   its best mean accuracy at 10-20 samples/class. Imagenette reaches that threshold at 5-10
+   samples/class.
+2. **Classifier comparison:** Nearest Centroid and KMeans are competitive with KNN on CIFAR-10;
+   on Imagenette, KNN and Nearest Centroid are the strongest observed classifiers.
+3. **PCA trade-off:** CIFAR-10 `pca95var` keeps 95.14% variance and slightly improves accuracy.
+   Imagenette `pca95var` keeps 95.02% variance, but its measured energy cost is notably higher,
+   so the PCA choice should be argued as a dataset-specific accuracy/memory/energy trade-off.
 
-## Goal (i): KNN sample-size sweet spot
+## Scenario Coverage
 
-![Accuracy vs reference-sample count](figures/fig1_accuracy_vs_samples.png)
+| Dataset | Scenarios | Runs | PCA modes | Samples/class | Seeds |
+|---|---|---:|---|---|---:|
+| CIFAR-10 | KNN, Nearest Centroid, KMeans | 720 | `nopca`, `pca95var` | 2..100 | 10 |
+| Imagenette | KNN, Nearest Centroid, KMeans | 720 | `nopca`, `pca95var` | 2..100 | 10 |
 
-The accuracy curve is a textbook **knee**: accuracy jumps from ~53% at 2 samples/class to ~75%
-at 10, then flattens.
+## Accuracy Knees
 
-| samples/class | 2 | 5 | 10 | 20 | 30 | 50 | 100 |
-|---|---|---|---|---|---|---|---|
-| nopca | 0.53 | 0.71 | 0.75 | 0.76 | 0.77 | 0.78 | 0.78 |
-| pca31 | 0.55 | 0.72 | 0.76 | 0.76 | 0.76 | 0.78 | 0.79 |
+Smallest `samples_per_class` reaching 95% of that scenario/PCA pipeline's best mean accuracy:
 
-- By **10 samples/class** the pipelines already reach **94.8% (nopca) / 95.7% (pca31)** of their
-  maximum mean accuracy (max = 0.789 / 0.794).
-- The strict "99% of max" knee lands at **40 samples/class (pca31)** / **60 (nopca)**, but the
-  gain from 20→100 is only ~2–3 percentage points.
+| Scenario | Classifier | nopca | pca95var |
+|---|---|---:|---:|
+| CIFAR-10 KMeans | KMeans | 10 | 10 |
+| CIFAR-10 KNN | KNN | 20 | 10 |
+| CIFAR-10 Nearest Centroid | Nearest Centroid | 10 | 10 |
+| Imagenette KMeans | KMeans | 10 | 10 |
+| Imagenette KNN | KNN | 10 | 10 |
+| Imagenette Nearest Centroid | Nearest Centroid | 5 | 5 |
 
-**Recommendation:** **~10–20 reference samples/class** is the practical sweet spot — ~95% of the
-ceiling at a fraction of the memory. Use ~40 only if the last ~1% matters and memory allows.
-This directly supports the on-device-retraining motivation: hoarding samples is unnecessary.
+## Best Mean Accuracy
 
----
+| Dataset | Classifier | PCA | Best samples/class | Mean accuracy |
+|---|---|---|---:|---:|
+| CIFAR-10 | KMeans | `pca95var` | 100 | 0.8070 |
+| CIFAR-10 | KNN | `pca95var` | 90 | 0.7935 |
+| CIFAR-10 | Nearest Centroid | `pca95var` | 100 | 0.8095 |
+| Imagenette | KMeans | `pca95var` | 100 | 0.9730 |
+| Imagenette | KNN | `pca95var` | 100 | 0.9835 |
+| Imagenette | Nearest Centroid | `pca95var` | 90 | 0.9820 |
 
-## Goal (ii): Usefulness of PCA
+## PCA Effect Summary
 
-PCA(31) retains **95.14%** of the 160-D feature variance:
+| Dataset | Classifier | Mean accuracy diff, PCA - no PCA | Wilcoxon p |
+|---|---|---:|---:|
+| CIFAR-10 | KMeans | +0.00875 | 0.00009 |
+| CIFAR-10 | KNN | +0.00600 | 0.00020 |
+| CIFAR-10 | Nearest Centroid | +0.00662 | 0.00001 |
+| Imagenette | KMeans | +0.00167 | 0.30055 |
+| Imagenette | KNN | -0.00196 | 0.36482 |
+| Imagenette | Nearest Centroid | +0.00142 | 0.03143 |
 
-![PCA explained variance](figures/fig3_pca_explained_variance.png)
+## Energy Snapshot
 
-**Accuracy.** Paired comparison at matched (samples, seed): PCA *beats* no-PCA by **+0.70 pp** on
-average (75.6% vs 74.9%), **Wilcoxon p = 0.0001** over 120 pairs — a small but real gain (likely
-denoising from dropping low-variance dimensions).
+Net charge per approximately 200-image run, averaged by classifier/PCA:
 
-**Memory — the decisive win.** Reference-store size = `samples/class × 10 classes × dim × 4 B`.
-PCA shrinks the per-sample dimension 160→31, cutting the store **5.2×** (e.g. **625 KB → 121 KB**
-at 100 samples/class):
+| Dataset | Classifier | nopca mAh/run | pca95var mAh/run |
+|---|---|---:|---:|
+| CIFAR-10 | KMeans | 0.4554 | 0.4649 |
+| CIFAR-10 | KNN | 0.5072 | 0.5003 |
+| CIFAR-10 | Nearest Centroid | 0.4525 | 0.4990 |
+| Imagenette | KMeans | 3.2857 | 7.3963 |
+| Imagenette | KNN | 3.4307 | 7.4774 |
+| Imagenette | Nearest Centroid | 3.2422 | 7.5971 |
 
-![KNN store size](figures/fig2_knn_store_size.png)
+## Use In The Write-Up
 
-
----
-
-## Power & energy
-
-![Charge consumed per run](figures/fig4_charge_per_run.png)
-
-- **Inference is cheap; idle dominates.** Gross draw ≈ **0.79 W**, of which only ≈ **0.18 W**
-  (net) is the classifier — the rest is the Pi idling. A ~200-image run costs ≈ **2.2 mAh gross**
-  but only ≈ **0.49 mAh net** (@ 5 V). *For the rover, the energy bottleneck is duty-cycle/idle,
-  not the model.*
-- **PCA keeps energy flat as the store grows.** Net charge/run is ~constant for PCA(31) across
-  sample sizes, while no-PCA (160-D) drifts up ~**20%** from the smallest to the largest store —
-  the higher-dimensional KNN search does more work. ⚠️ *Confirm BLAS threads are pinned before
-  over-reading this trend (known multi-threading confound at high dimensionality).*
-- **Sample size barely moves energy** in absolute terms (hundredths of a mAh per run), so the
-  sweet-spot choice can be made on **accuracy + memory**, not power.
-
-*(mAh at the 5 V supply rail; net = idle-baseline-subtracted marginal cost. We make no assumption
-about battery capacity — divide any pack's mAh rating by the per-run figures for runtime.)*
-
----
-
-## Methodology & rigor
-
-- **Reproducible & seeded:** one seed controls *both* reference-sample selection and test-image
-  order; 10 seeds per cell; results are mean ± 95% CI (t-based); PCA compared **paired**
-  (Wilcoxon signed-rank).
-- **Trained on the full training set;** only the **initialization sample size** is varied in the
-  benchmark.
-- **Results stabilize fast:** accuracy 95%-CI half-width shrinks from **±3.7% at 2 samples/class
-  to ±2% by ≥10** — exactly where the knee is, justifying both the multi-seed design and the
-  small-sample recommendation.
-
-## Caveats
-
-- ~79% accuracy is the **feature-extractor + KNN ceiling** on this 10-class task; test set is a
-  200-image subset per run.
-- The "99% knee" metric is sensitive to noise on a flat curve — frame the sweet spot as "≥95% of
-  max by ~10–20 samples", not a single magic number.
-- Absolute power is dominated by the Pi idle baseline (~0.61 W of ~0.79 W); we report **net**
-  (marginal) energy to isolate the model.
-
-## Appendix — overview grid
-
-![Summary grid: accuracy / net energy / memory / CPU vs samples](figures/summary_grid.png)
-
-**Reproduce:** `python make_findings_figures.py` regenerates every figure above from the results;
-`python analyze_benchmark.py` rebuilds the CSVs + report; or run `benchmark_analysis.ipynb`
-top-to-bottom for the interactive version.
+- Use the generated `findings_*.md` files for detailed dataset-specific tables and figure paths.
+- Use the `project_requirements_*.csv` files as a checklist against the assignment PDF.
+- Keep raw `results/` outside normal Git unless the team explicitly wants a large reproducibility
+  archive.

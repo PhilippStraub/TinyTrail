@@ -1,301 +1,603 @@
-# KNN Sweet-Spot Benchmark Pipeline
+# Multi-Scenario Benchmark Pipeline
 
-Automated measurement environment for the DBE SS26 project *"Analyse und Identifikation
-des Sweet Spots für die Sample-Größe des KNNs im TinyMLOps Framework."*
+Automated benchmark runner for TinyMLOps classifier scenarios. The pipeline can run one
+or more scenarios sequentially, deploy each scenario to the Raspberry Pi via NATS, collect
+the returned logs, and store results in scenario-specific folders.
 
-It answers three research questions empirically:
+The pipeline is configured in `server/benchmark/benchmark_config.json` and implemented in
+`server/benchmark/benchmark_pipeline.py`.
 
-1. **Sweet spot** — how does KNN accuracy scale with the number of reference samples?
-2. **PCA usefulness** — does PCA help (accuracy / memory / CPU / energy) vs. raw features?
-3. **Cost** — how do memory, CPU and energy grow with sample size and PCA?
+## What Gets Swept
 
-For every configuration it trains the model artifacts on the server, deploys them to a
-Raspberry Pi Zero 2W over NATS, runs inference on the Pi, measures power externally with a
-Voltcraft DSP-3005, pulls the results back, and stores everything for analysis.
+For every scenario listed in `experiment_names`, the pipeline runs the full cross-product:
 
----
-
-## 1. How it works (one experiment)
-
-```
-                         ┌──────────────────────── this PC (server) ───────────────────────┐
-                         │                                                                  │
-  benchmark_config.json ─┤  benchmark_pipeline.py                                           │
-                         │     1. ensure feature_processor_pcaN.npz      (cached)           │
-                         │     2. create_initial_state.py  --seed S      → KNN state JSON    │
-                         │     3. patch config.json + copy artifacts → raw_data/            │
-                         │     4. SUBSCRIBE  analysis.logs.<device>      (DeliverPolicy.NEW) │
-                         │     5. START power logger (Voltcraft DSP-3005 on COMx)           │
-                         │     6. DEPLOY: packager zips raw_data/ → publishes to NATS MODELS │
-                         │                                                                  │
-                         │   Voltcraft ── powers ──► Raspberry Pi ◄── USB-serial ── reads ──┘
-                         │                                │
-                         └────────────────────────────────┼─────────────────────────────────
-                                                          │ NATS JetStream
-                         ┌──────────────────────── Raspberry Pi Zero 2W ───────────────────┐
-                         │  deployment-receiver.py                                          │
-                         │     • receives ZIP, extracts, runs main.py                       │
-                         │     • main.py: TFLite → (PCA) → LightweightKNN → drift monitor   │
-                         │       writes merged_analysis_*.csv + resource_usage_*.csv        │
-                         │     • on completion → transmitter.py zips logs → analysis.logs.* │
-                         └──────────────────────────────────────────────────────────────────┘
-                                                          │
-                         ┌────────────────────────────────┼─────────────────────────────────
-                         │  benchmark_pipeline.py                                           │
-                         │     7. RECEIVE log ZIP, extract merged_analysis + resource CSV   │
-                         │     8. STOP power logger                                         │
-                         │     9. compute energy over the inference window                  │
-                         │    10. write results/<experiment_id>/                            │
-                         └──────────────────────────────────────────────────────────────────┘
+```text
+pca_configs x samples_per_class x seeds
 ```
 
-The pipeline **subscribes before it deploys** (with `DeliverPolicy.NEW`), so the result it
-receives is guaranteed to belong to the experiment it just launched. The old
-`Analytical-Data-Processor` service is **not** required.
+With the current default config:
 
----
-
-## 2. The sweep
-
-The experiment list is the full cross-product defined in `benchmark_config.json`:
-
-```
-pca_configs  ×  samples_per_class  ×  seeds
+```text
+2 PCA modes x 12 sample counts x 10 seeds = 240 experiments per scenario
 ```
 
-- **pca_configs** — e.g. `{components:80}`, `{components:40}`, `{enabled:false}` (no-PCA)
-- **samples_per_class** — reference samples per class loaded into the KNN, e.g. `2 … 100`
-- **seeds** — repeats each (pca, spc) pair N times with fixed seeds so results are not a
-  lucky draw of reference samples. The **same seed** controls both the reference-sample
-  selection (`create_initial_state.py`) and the test-image shuffle (`config.json`).
+If you list three scenarios, that becomes 720 experiments.
 
-Total experiments = `len(pca_configs) × len(samples_per_class) × len(seeds)`.
-With the default config that is `3 × 8 × 5 = 120`.
+## Scenario List
 
-> **Reference-state creation is fast and in-process.** For each experiment the pipeline calls
-> `build_initial_state()` **in-process** instead of spawning a subprocess: the scenario module —
-> and TensorFlow — is imported **once** for the whole sweep (so the pipeline process itself holds
-> TF, a few hundred MB) and one TFLite interpreter is reused. It also sub-samples each class to
-> `samples_per_class` **before** extracting features (the `train/` folders hold 5000 images/class,
-> and only the kept samples are ever run through the model). Net effect: init costs seconds per
-> experiment, not minutes, while the selection stays fully seed-reproducible.
+Use `experiment_names` in `benchmark_config.json`:
 
-Each experiment gets an id like `exp_001_pca80_spc2_s42`
-(`<index>_<pca|nopca>_spc<N>_s<seed>`).
-
----
-
-## 3. Prerequisites
-
-| Requirement | Notes |
-|---|---|
-| Python venv | `.venv311` at the repo root, with `pyserial`, `nats-py`, `numpy`, `tensorflow` |
-| Backbone model | `model_object.tflite` + `labels_object.txt` already trained (in the scenario `model/` dir) |
-| CIFAR-10 dataset | `examples/dataset_cifar10/train` for reference-sample extraction |
-| Test images | `raw_data/.../input_images/<class>/*.png` — the **test split** (novelty), per the paper |
-| NATS server | running and reachable from both this PC and the Pi |
-| Pi | `deployment-receiver.py` running (latest version with `watch_process_completion`) |
-| Voltcraft DSP-3005 | (optional) on a COM port; the Pi is powered **through** it |
-
-> **Clock sync (for energy):** the energy metric slices the power trace to the Pi's actual
-> inference window using the Pi's `timestamp_unix`. Enable NTP on the Pi so its clock matches
-> this PC: `sudo timedatectl set-ntp true`.
-
----
-
-## 4. Configuration — `benchmark_config.json`
-
-```jsonc
+```json
 {
-  "device_id": "my_device_01",          // NATS subject suffix; must match the Pi's device_id
-  "nats_url": "nats://localhost:4222",  // broker URL (this PC's view)
-  "result_timeout_seconds": 1800,       // max wait per experiment before marking TIMEOUT
+  "experiment_names": [
+    "scenario_cifar10_knn_benchmark",
+    "scenario_cifar10_nearest_centroid",
+    "scenario_cifar10_kmeans"
+  ]
+}
+```
 
-  "pca_configs": [
-    { "enabled": true,  "components": 80 },
-    { "enabled": true,  "components": 40 },
-    { "enabled": false }
-  ],
+The pipeline also accepts the aliases `experiment_name`, `Experiment Name`,
+`scenario_names`, `scenarios`, and `scenario`, but `experiment_names` is the recommended
+field.
 
-  "samples_per_class": [2, 5, 10, 20, 30, 50, 75, 100],
+You can also use objects for per-scenario overrides:
 
-  "seeds": [42, 123, 456, 789, 1337],
+```json
+{
+  "experiment_names": [
+    "scenario_cifar10_nearest_centroid",
+    {
+      "name": "scenario_imagenette_nearest_centroid",
+      "dataset_name": "imagenette",
+      "test_images_per_class": 10,
+      "pca_configs": [
+        { "enabled": true, "components": 64 },
+        { "enabled": true, "explained_variance": 0.95 },
+        { "enabled": false }
+      ]
+    }
+  ]
+}
+```
 
-  "power": {
-    "enabled": true,            // set false to skip energy logging
-    "port": "COM3",             // Voltcraft DSP-3005 serial port
-    "rate": 5.0,                // power samples per second
-    "baseline_power_w": null    // idle Pi power (W) — fill in via --measure-baseline
+Object fields override the global benchmark config only for that scenario.
+
+## Required Scenario Files
+
+Each scenario name must correspond to a folder here:
+
+```text
+server/Retrainer/on-device-drift-detection-main/examples/python_examples/<scenario_name>/
+```
+
+Required files and folders:
+
+```text
+<scenario_name>/
+  config.json
+  main.py
+  create_initial_state.py
+  model/
+    model_object.tflite
+    labels_object.txt
+    feature_processor.npz              # needed for PCA runs, or generated/cached
+  initial_state/
+    knn_initial_state_objects.json     # overwritten by create_initial_state.py
+    knn_reference_stats.json           # overwritten by create_initial_state.py
+```
+
+The deployed payload is assembled automatically under:
+
+```text
+server/Deployment-Packager/nats-model-service/raw_data/<scenario_name>/
+```
+
+You normally do not edit this folder by hand. The pipeline creates or refreshes:
+
+```text
+raw_data/<scenario_name>/
+  main.py
+  create_initial_state.py
+  config.json
+  experiment_config.json
+  utils/
+  tinylcm_python/
+  model/
+  initial_state/
+  input_images/
+```
+
+`utils/` and `tinylcm_python/` are copied from the Retrainer project automatically.
+They are required on the Raspberry Pi because the deployed `main.py` imports them directly.
+
+## Model Training And Feature Processor
+
+If a scenario has its own feature processor builder, place it here:
+
+```text
+server/Retrainer/on-device-drift-detection-main/examples/model_training/<scenario_name>/make_feature_processor.py
+```
+
+If this file is missing, the pipeline searches for a compatible builder by dataset name,
+for example a `*cifar10*/make_feature_processor.py`. It calls the builder with:
+
+```text
+--model-path <scenario>/model/model_object.tflite
+--output-dir <scenario>/model
+--pca-components <N or variance>
+```
+
+Use `components` for a fixed output dimension, for example `31`.
+Use `explained_variance` for an adaptive PCA dimension, for example `0.95`
+or `95` for 95% explained variance. Imagenette benchmarks should use this
+mode when you want the PCA reduction to keep 95% variance.
+
+Generated PCA processors are cached as:
+
+```text
+<scenario>/model/feature_processor_pca<N>.npz
+<scenario>/model/feature_processor_pca95var.npz
+```
+
+## Scenario Configs
+
+The active Pi config for a scenario comes from this priority order:
+
+1. `server/benchmark/config_templates/<scenario_name>.json`
+2. `examples/python_examples/<scenario_name>/config.json`
+3. `raw_data/<scenario_name>/config.json`
+4. legacy fallback: `server/benchmark/config_template.json`
+
+Recommended setup: keep each scenario's real base config in its own
+`examples/python_examples/<scenario_name>/config.json`. Use
+`server/benchmark/config_templates/<scenario_name>.json` only when you need a benchmark-only
+override.
+
+The old `server/benchmark/config_template.json` is now only a fallback for older setups. It
+is no longer the single source of truth.
+
+During each experiment the pipeline patches only runtime-specific fields:
+
+```text
+tinylcm.feature_transformation.enabled
+tinylcm.adaptive_classifier.max_samples
+image_input.shuffle_seed
+```
+
+Everything else, including classifier type and image resolution, should be defined in the
+scenario config.
+
+## Pi Logging
+
+Keep benchmark runs quiet on the Raspberry Pi terminal:
+
+```json
+"device": {
+  "log_level": "INFO",
+  "console_log_level": "ERROR"
+}
+```
+
+`log_level` controls the log file under `./logs`. `console_log_level` controls what is
+printed to the Pi terminal and should stay `ERROR` for performance-oriented benchmark
+runs.
+
+Long per-image lines with predictions, distances, drift state, and latency are disabled
+by default. Enable them only for debugging:
+
+```json
+"data_logger": {
+  "enabled": false,
+  "log_images": false,
+  "log_drift_events": false,
+  "verbose_frame_logging": false
+}
+```
+
+The benchmark artifacts (`performance_*.json`, `resource_usage_*.csv`, and
+`merged_analysis_*.csv`) are still written.
+
+## Supported Classifiers
+
+Set the classifier in the scenario `config.json`:
+
+```json
+"adaptive_classifier": {
+  "type": "LightweightKNN",
+  "k": 3,
+  "max_samples": 200,
+  "distance_metric": "euclidean",
+  "weight_by_distance": true,
+  "idw_power": 3.0,
+  "initial_state_path": "./initial_state/knn_initial_state_objects.json"
+}
+```
+
+Supported values:
+
+```text
+LightweightKNN
+NearestCentroidClassifier
+KMeansPrototypeClassifier
+```
+
+For KMeans, add:
+
+```json
+"m_prototypes": 3
+```
+
+Important: `create_initial_state.py` must create a state with the same classifier type as
+the scenario config. For example:
+
+```python
+CLASSIFIER_TYPE = "nearest_centroid"
+```
+
+or:
+
+```python
+CLASSIFIER_TYPE = "kmeans"
+```
+
+The filenames `knn_initial_state_objects.json` and `knn_reference_stats.json` are kept for
+compatibility. They may contain Nearest Centroid or KMeans prototype states.
+
+## Image Resolution And Datasets
+
+Set inference resolution in each scenario config:
+
+```json
+"image_input": {
+  "inference_resolution": [32, 32]
+}
+```
+
+For ImageNet/Imagenette-style models this may be:
+
+```json
+"image_input": {
+  "inference_resolution": [224, 224]
+}
+```
+
+The pipeline uses the scenario's `supported_extensions` when copying test images, so
+`.png`, `.jpg`, `.jpeg`, `.bmp`, `.webp`, or `.JPEG` can be supported by config.
+
+Dataset name is inferred from the scenario name:
+
+```text
+scenario_cifar10_*      -> cifar10
+scenario_imagenette_*   -> imagenette
+scenario_imagenet_*     -> imagenet
+```
+
+Override it if needed:
+
+```json
+{
+  "experiment_names": [
+    {
+      "name": "scenario_my_custom_name",
+      "dataset_name": "imagenette"
+    }
+  ]
+}
+```
+
+Default test split locations:
+
+```text
+cifar10     -> server/Retrainer/on-device-drift-detection-main/examples/dataset_cifar10/test
+imagenette  -> server/Retrainer/on-device-drift-detection-main/examples/dataset_imagenette/test
+imagenet    -> server/Retrainer/on-device-drift-detection-main/examples/dataset_imagenet/test
+              fallback: dataset_imagenette/test
+```
+
+Override globally or per dataset:
+
+```json
+{
+  "test_data_dir": "server/Retrainer/on-device-drift-detection-main/examples/dataset_cifar10/test",
+  "test_data_dirs": {
+    "cifar10": "server/Retrainer/on-device-drift-detection-main/examples/dataset_cifar10/test",
+    "imagenette": "server/Retrainer/on-device-drift-detection-main/examples/dataset_imagenette/test",
+    "scenario_custom": "path/to/custom/test"
   }
 }
 ```
 
-`config_template.json` is the **frozen base** Pi config. The pipeline loads it, patches only
-the per-experiment fields (PCA on/off, `max_samples`, `shuffle_seed`) and writes the result
-to `raw_data/.../config.json` for deployment. The template itself is never modified.
+`test_data_dirs` keys can be dataset names or exact scenario names.
 
----
+## Result Layout
 
-## 5. Running it
+Results are now separated by scenario:
 
-All commands run from `server/benchmark/` using the repo venv python.
+```text
+server/benchmark/results/
+  benchmark_summary.json
+  scenario_cifar10_knn_benchmark/
+    benchmark_summary.json
+    exp_001_pca31_spc2_s42/
+      merged_analysis_*.csv
+      resource_usage_*.csv
+      performance_*.json
+      drift_detection_*.csv
+      power_exp_001_pca31_spc2_s42.csv
+      experiment_metadata.json
+  scenario_cifar10_nearest_centroid/
+    benchmark_summary.json
+    exp_001_pca31_spc2_s42/
+      ...
+  scenario_cifar10_kmeans/
+    benchmark_summary.json
+    exp_001_pca31_spc2_s42/
+      ...
+```
+
+Root `benchmark_summary.json` summarizes all scenarios. Each scenario also gets its own
+`benchmark_summary.json`.
+
+## Resume And Summary Rebuild
+
+The benchmark is resume-safe by default:
+
+```json
+"skip_completed": true
+```
+
+A run is treated as completed only if its experiment folder contains both:
+
+```text
+experiment_metadata.json
+merged_analysis*.csv
+```
+
+Folders that only contain a partial power log, for example after a timeout, are not
+treated as completed. When the benchmark is started again, those combinations are
+deployed again and the missing result files are written into the same `exp_*` folder.
+Completed runs are skipped.
+
+To rebuild the summaries from existing complete result folders without deploying
+anything:
 
 ```powershell
-# (Windows / PowerShell — adjust the python path if needed)
+& $py benchmark_pipeline.py --rebuild-summary
+```
+
+This rewrites:
+
+```text
+server/benchmark/results/benchmark_summary.json
+server/benchmark/results/<scenario_name>/benchmark_summary.json
+```
+
+To intentionally run completed combinations again:
+
+```powershell
+& $py benchmark_pipeline.py --rerun-completed
+```
+
+Do not use `--clean-results` for a resume run. It deletes all `exp_*` folders,
+including good completed runs.
+
+Each `experiment_metadata.json` includes:
+
+```json
+{
+  "scenario_name": "scenario_cifar10_nearest_centroid",
+  "dataset_name": "cifar10",
+  "classifier_type": "NearestCentroidClassifier",
+  "config_source": ".../scenario_cifar10_nearest_centroid/config.json",
+  "inference_resolution": [32, 32],
+  "pca_enabled": true,
+  "pca_components": null,
+  "pca_target": 0.95,
+  "pca_target_type": "explained_variance",
+  "pca_label": "pca95var",
+  "pca_explained_variance_%": 95.02,
+  "samples_per_class": 2,
+  "seed": 42,
+  "power": {}
+}
+```
+
+This is the field the analysis step can use later to group by dataset, scenario, and
+classifier.
+
+## Running
+
+From `server/benchmark/`:
+
+```powershell
 $py = "C:\Users\jonas\DBE\KNN Sampling\tinymlops-framework\.venv311\Scripts\python.exe"
 ```
 
-### Step 0 — dry run (no execution, just the plan)
+Dry run:
+
 ```powershell
 & $py benchmark_pipeline.py --dry-run
 ```
 
-### Step 1 — measure the idle power baseline (once)
-Boot the Pi, make sure `deployment-receiver.py` is running, but **no inference is running**.
-```powershell
-& $py benchmark_pipeline.py --measure-baseline 60
-```
-Copy the printed `P_idle` value into `power.baseline_power_w` in the config. This lets the
-pipeline report the **net** (marginal) energy of inference, with the Pi's base draw removed.
+Run all configured scenarios:
 
-### Step 2 — run the full sweep
 ```powershell
 & $py benchmark_pipeline.py
 ```
-Optional:
+
+Large Imagenette deployments can exceed the NATS `max_payload` limit if sent as
+one ZIP. The packager now automatically sends ZIPs larger than the single-message
+limit in chunks, and `client/deployment-receiver.py` reassembles them on the Pi.
+Make sure the Pi is running the updated receiver before launching Imagenette runs.
+
+KNN deployments become especially large for Imagenette because the adaptive classifier
+stores the selected support samples as feature vectors in `initial_state/`. The size
+therefore grows with `classes x samples_per_class x feature_dimension`. Imagenette uses
+a larger input resolution and a stronger feature extractor than CIFAR-10, so its
+intermediate feature vectors are much wider. PCA reduces that feature dimension, which
+is why `pca95var` deployments are smaller than no-PCA deployments, but high
+`samples_per_class` values can still create multi-megabyte initial-state JSON files.
+Nearest Centroid and KMeans usually stay smaller because they store aggregated
+representatives such as centroids instead of every selected KNN support vector.
+
+## Raspberry Pi Receiver Over SSH
+
+The Pi does not need a display. Use SSH only to install, start, stop, or inspect the
+receiver. For long benchmark runs, the receiver should run as a `systemd` service so it
+does not depend on an open SSH terminal.
+
+Copy the updated receiver from Windows to the Pi:
+
+```powershell
+scp client/deployment-receiver.py hans@<PI-IP>:/home/hans/client/deployment-receiver.py
+```
+
+Log into the Pi:
+
+```powershell
+ssh hans@<PI-IP>
+```
+
+Check that the receiver contains the large-message/chunk support:
+
+```bash
+grep -n "MAX_MSG_SIZE\|chunk" /home/hans/client/deployment-receiver.py
+```
+
+Create the service:
+
+```bash
+sudo nano /etc/systemd/system/deployment-receiver.service
+```
+
+Service file for the current Pi folder layout:
+
+```ini
+[Unit]
+Description=TinySphere Deployment Receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/home/hans/client
+ExecStart=/usr/bin/python3 /home/hans/client/deployment-receiver.py
+Restart=always
+RestartSec=5
+User=hans
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable deployment-receiver
+sudo systemctl restart deployment-receiver
+sudo systemctl status deployment-receiver
+```
+
+Watch live logs:
+
+```bash
+journalctl -u deployment-receiver -f
+```
+
+After copying a newer `deployment-receiver.py`, restart the service:
+
+```bash
+sudo systemctl restart deployment-receiver
+```
+
+If you only need a short manual run, `tmux` is acceptable:
+
+```bash
+tmux new -s receiver
+cd /home/hans/client
+python3 deployment-receiver.py
+```
+
+Detach with `Ctrl+B`, then `D`; reattach with:
+
+```bash
+tmux attach -t receiver
+```
+
+Use a custom config or output folder:
+
 ```powershell
 & $py benchmark_pipeline.py --config my_cfg.json --results-dir results_run2
-& $py benchmark_pipeline.py --clean-results       # fresh sweep: delete old exp_* first
 ```
 
-You can interrupt (`Ctrl+C`) and re-run; completed experiment folders are simply overwritten
-on the next pass if you run the same ids again.
+Clean previous `exp_*` folders before a fresh run:
 
-**`--clean-results`** deletes every `exp_*` folder before the sweep starts (it leaves
-`results/analysis/` and the baseline untouched). Use it for a clean run after changing the
-config — when sample sizes or pipelines shift, old folders with now-unused index/spc
-combinations would otherwise linger and get mixed into the analysis (which crawls every
-`exp_*`). It is **opt-in on purpose**: without it the pipeline preserves the `Ctrl+C`-then-resume
-behavior above, so a normal re-run never silently wipes a half-finished sweep.
-
----
-
-## 6. Output layout
-
-```
-results/
-  baseline_power.csv                     # from --measure-baseline
-  benchmark_summary.json                 # per-experiment OK/TIMEOUT roll-up
-  exp_001_pca80_spc2_s42/
-    merged_analysis_*.csv                # one row per inference (accuracy, latency, drift, …)
-    resource_usage_*.csv                 # Pi CPU% / RAM at 1 Hz, with absolute timestamps
-    performance_*.json                   # summary written by the Pi
-    power_exp_001_pca80_spc2_s42.csv     # RAW Voltcraft readings (timestamp,V,I,P,…)
-    experiment_metadata.json             # config + PCA variance + derived power/energy
-  exp_002_pca80_spc2_s123/
-    ...
+```powershell
+& $py benchmark_pipeline.py --clean-results
 ```
 
-### `experiment_metadata.json`
-```jsonc
-{
-  "pca_enabled": true,
-  "pca_components": 80,
-  "samples_per_class": 2,
-  "seed": 42,
-  "experiment_id": "exp_001_pca80_spc2_s42",
-  "started_at": "...",
-  "result_received_at": "...",
-  "pca_explained_variance_%": 94.3,      // variance retained by PCA (from the .npz)
-  "power": {
-    "full_window":      { "energy_J": ..., "avg_power_W": ..., "duration_s": ... },
-    "inference_window": {                 // sliced to the Pi's actual inference period
-      "energy_J": ..., "avg_power_W": ..., "energy_per_image_J": ...,
-      "net_avg_power_W": ...,             // minus idle baseline = marginal inference cost
-      "net_energy_per_image_J": ...
-    }
-  }
+Measure idle Pi power:
+
+```powershell
+& $py benchmark_pipeline.py --measure-baseline 60
+```
+
+Copy the printed idle power into:
+
+```json
+"power": {
+  "baseline_power_w": 0.6140
 }
 ```
 
----
+## Current Default Config
 
-## 7. The metrics, and which column feeds which plot
+Current `benchmark_config.json` runs:
 
-| Metric | Source | Column(s) |
-|---|---|---|
-| Accuracy | `merged_analysis_*.csv` | `cumulative_accuracy`, `final_accuracy`, `correct` |
-| Latency | `merged_analysis_*.csv` | `latency_ms` |
-| Confidence / drift | `merged_analysis_*.csv` | `confidence`, `drift_detected`, `ground_truth`, `prediction` |
-| CPU % | `resource_usage_*.csv` | `cpu_percent_total` (native BLAS + TFLite threads pinned to 1 — see §8) |
-| Memory | `resource_usage_*.csv` | `process_rss_mb`, `memory_percent_total` |
-| Energy / Power | `power_*.csv` → `experiment_metadata.json` | `P_out` → `energy_per_image_J`, `net_*` |
-
----
-
-## 8. Scientific notes (measurement validity)
-
-- **Energy is measured out-of-band.** The Voltcraft is read by *this PC*, not the Pi, so the
-  power figures carry **zero measurement load** on the device — they represent what a real
-  deployment (e.g. a rover) would draw.
-- **On-Pi instrumentation is constant.** The only on-device logging is `psutil` at 1 Hz (for
-  CPU/RAM). It costs the same regardless of sample size or PCA, so it shifts every curve by a
-  fixed offset and does **not** distort the sweet-spot trend. Quantify it once with a
-  calibration run (psutil on vs off) and document the offset.
-- **Net energy isolates inference.** Subtracting `baseline_power_w` removes the Pi's idle draw
-  and the fixed instrumentation cost, leaving the marginal cost attributable to sample size
-  and PCA — exactly the paper's Energy curve.
-- **Native threads are pinned to 1 (BLAS + TFLite).** Without pinning, the pca80 pipeline pegged
-  ~3 cores (`process_cpu` ~315 %, system CPU ~79 %, **flat across all sample counts, even spc=2**)
-  while pca40/nopca stayed single-threaded — inflating its CPU and energy ~16× with no latency
-  benefit at this ~5 fps duty cycle, and making the pipelines incomparable. Because >100 % CPU
-  needs *native* threads and the TFLite backbone + OpenCV preprocessing are identical across all
-  pipelines, the culprit is **numpy's BLAS (OpenBLAS)**: its worker pool spins up and busy-waits,
-  and only the pca80 config trips it. The fix is to pin the **BLAS/OpenMP** threads — the deployed
-  `main.py` sets `OMP_NUM_THREADS`/`OPENBLAS_NUM_THREADS`/… `=1` **before numpy is imported**
-  (`os.environ.setdefault`). The TFLite interpreter is *also* pinned (`num_threads=1` in
-  `tinylcm_python/feature_extractor.py`) as a secondary control. Both match the stationary-rover
-  use case where inference is the only load; raise them only if the production rover would run
-  multi-threaded. **Verify on the Pi after re-running:** a pinned pca80 run should drop from
-  ~315 % to ~20 % `process_cpu`, matching pca40/nopca.
-- **Reproducibility.** Every experiment is fully determined by its seed (reference-sample
-  selection **and** test shuffle). Repeating with the same `seeds` list reproduces results;
-  averaging across seeds gives the mean ± spread for each (pca, spc) point.
-
----
-
-## 9. Standalone power logging (manual)
-
-The reader also works on its own, independent of the pipeline:
-
-```powershell
-& $py dsp3005_reader.py COM3                 # log at 5 Hz to dsp3005/dsp3005_log_<ts>.csv
-& $py dsp3005_reader.py COM3 --rate 3
-& $py dsp3005_reader.py COM3 --csv out.csv
+```json
+"experiment_names": [
+  "scenario_imagenette_knn",
+  "scenario_cifar10_knn_benchmark",
+  "scenario_imagenette_nearest_centroid",
+  "scenario_cifar10_nearest_centroid",
+  "scenario_imagenette_kmeans",
+  "scenario_cifar10_kmeans"
+]
 ```
 
----
+To benchmark KNN, Nearest Centroid, and KMeans sequentially:
 
-## 10. Files in this folder
+```json
+"experiment_names": [
+  "scenario_cifar10_knn_benchmark",
+  "scenario_cifar10_nearest_centroid",
+  "scenario_cifar10_kmeans"
+]
+```
 
-| File | Purpose |
+## Files In `server/benchmark`
+
+```text
+benchmark_pipeline.py     multi-scenario runner
+benchmark_config.json     scenario list, sweep dimensions, power config
+config_template.json      legacy fallback config
+config_templates/         optional per-scenario benchmark-only configs
+dsp3005_reader.py         Voltcraft DSP-3005 reader
+results/                  benchmark outputs
+```
+
+## Troubleshooting
+
+| Symptom | Check |
 |---|---|
-| `benchmark_pipeline.py` | Orchestrator — runs the whole sweep |
-| `benchmark_config.json` | Sweep definition (pca × spc × seeds) + power settings |
-| `config_template.json` | Frozen base Pi config; patched per experiment |
-| `dsp3005_reader.py` | Voltcraft DSP-3005 serial reader + `PowerLogger` class |
-| `results/` | Per-experiment output |
-
----
-
-## 11. Troubleshooting
-
-| Symptom | Cause / fix |
-|---|---|
-| `filtered consumer not unique on workqueue stream` | Old `analytical-receiver` consumer; pipeline recreates the ANALYSIS stream with `limits` retention automatically on first run. |
-| `consumer must be deliver all on workqueue stream` | Same root cause — stream was `workqueue`; first run converts it to `limits`. |
-| Pipeline waits forever | Pi's `deployment-receiver.py` not running, or it's an old version without `watch_process_completion`; results then only transmit on the 300 s timer. |
-| `ModuleNotFoundError: utils` on the Pi | `utils/` + `tinylcm_python/` must be bundled into `raw_data/`; already copied — re-deploy. |
-| `[POWER] Could not start power logger` | Wrong `port`, device off, or the *"Power Supply PC Monitor"* app holding the COM port. Close it. A power error never aborts the sweep. |
-| Empty `inference_window` energy | Pi/PC clocks not synced — enable NTP on the Pi. `full_window` is still recorded. |
-| `has Serial: False` | The wrong `serial` package is installed; use `pyserial` (`pip uninstall serial && pip install pyserial`). |
+| Scenario not found | `examples/python_examples/<scenario_name>/` must exist |
+| Packager folder missing | OK, the pipeline creates `raw_data/<scenario_name>/` |
+| Wrong classifier runs | Check `tinylcm.adaptive_classifier.type` and `CLASSIFIER_TYPE` in `create_initial_state.py` |
+| Wrong input resolution | Set `image_input.inference_resolution` in the scenario config or scenario template |
+| `ModuleNotFoundError: No module named 'utils'` on Pi | Rerun the benchmark pipeline so `utils/` and `tinylcm_python/` are copied into `raw_data/<scenario_name>/` before packaging |
+| Test split missing | Set `test_data_dir` or `test_data_dirs` in `benchmark_config.json` |
+| KMeans PCA builder missing | Add a scenario-specific `make_feature_processor.py` or rely on the dataset fallback |
+| `nats.errors.MaxPayloadError` | Use the updated packager and updated Pi `client/deployment-receiver.py`; large deployments are sent chunked |
+| Timeout after deployment | Check that `deployment-receiver.service` is running on the Pi and watch `journalctl -u deployment-receiver -f` |
+| Result folders mixed | Results are separated under `results/<scenario_name>/exp_*`; use `--clean-results` for a fresh sweep |

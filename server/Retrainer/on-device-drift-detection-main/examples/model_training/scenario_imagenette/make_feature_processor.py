@@ -49,7 +49,12 @@ def parse_args():
     p.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     p.add_argument("--exclude-classes", nargs="*", default=None, help="Classes to exclude")
     p.add_argument("--img-size", type=int, default=224)
-    p.add_argument("--pca-components", type=int, default=DEFAULT_PCA_COMPONENTS)
+    p.add_argument(
+        "--pca-components",
+        type=float,
+        default=DEFAULT_PCA_COMPONENTS,
+        help="Integer component count, or a float in (0, 1) for target explained variance.",
+    )
     p.add_argument("--max-samples", type=int, default=DEFAULT_MAX_SAMPLES)
     p.add_argument("--preprocessing", choices=["mobilenetv2", "lowres"], default="mobilenetv2",
                    help="Must match the trained model (Imagenette = mobilenetv2)")

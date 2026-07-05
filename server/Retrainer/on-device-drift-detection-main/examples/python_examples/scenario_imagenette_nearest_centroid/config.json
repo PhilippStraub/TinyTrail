@@ -2,7 +2,8 @@
   "device": {
     "name": "Raspberry Pi Zero 2W",
     "description": "Imagenette folder-based drift detection (NearestCentroid)",
-    "log_level": "INFO"
+    "log_level": "INFO",
+    "console_log_level": "ERROR"
   },
   "image_input": {
     "input_dir": "./input_images",
@@ -86,11 +87,12 @@
       }
     ],
     "data_logger": {
-      "enabled": true,
+      "enabled": false,
       "log_dir": "./logs",
-      "log_images": true,
-      "log_drift_events": true,
-      "frame_log_interval": 10,
+      "log_images": false,
+      "log_drift_events": false,
+      "verbose_frame_logging": false,
+      "frame_log_interval": 9999,
       "max_log_size_mb": 100
     }
   },

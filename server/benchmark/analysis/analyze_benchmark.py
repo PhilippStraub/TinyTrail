@@ -27,15 +27,18 @@ Usage (repo venv python):
 
 import argparse
 import json
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 
 import matplotlib
-matplotlib.use("Agg")           # headless — no display needed
+if "ipykernel" not in sys.modules and not os.environ.get("JPY_PARENT_PID"):
+    matplotlib.use("Agg")       # headless CLI; keep notebook backends interactive/inline
 import matplotlib.pyplot as plt
 
 try:
@@ -46,6 +49,12 @@ except ImportError:
 
 CLASS_LABELS = ["airplane", "automobile", "bird", "cat", "deer",
                 "dog", "frog", "horse", "ship", "truck"]
+
+CLASSIFIER_LABELS = {
+    "LightweightKNN": "KNN",
+    "NearestCentroidClassifier": "Nearest Centroid",
+    "KMeansPrototypeClassifier": "KMeans",
+}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -68,6 +77,172 @@ def _latest(path_glob) -> Optional[Path]:
     return max(files, key=lambda p: p.stat().st_mtime)
 
 
+def classifier_label(classifier_type: Optional[str]) -> str:
+    """Short human-readable classifier name used in multi-scenario plots."""
+    if not classifier_type:
+        return "unknown"
+    return CLASSIFIER_LABELS.get(classifier_type, classifier_type)
+
+
+def _infer_dataset_name(scenario_name: Optional[str]) -> Optional[str]:
+    if not scenario_name:
+        return None
+    lower = scenario_name.lower()
+    if "cifar10" in lower:
+        return "cifar10"
+    if "imagenette" in lower:
+        return "imagenette"
+    if "imagenet" in lower:
+        return "imagenet"
+    return None
+
+
+def _discover_experiment_dirs(results_dir: Path) -> List[Path]:
+    """Find completed-run candidates in flat and scenario-separated result layouts."""
+    candidates = list(results_dir.glob("exp_*")) + list(results_dir.glob("*/exp_*"))
+    return sorted({p.resolve() for p in candidates if p.is_dir()})
+
+
+def _read_label_count(meta: Dict, df: pd.DataFrame) -> int:
+    """Best-effort class count for CIFAR-10 and Imagenette/ImageNet scenarios."""
+    search_dirs = []
+    for key in ("python_example_dir", "raw_data_dir"):
+        if meta.get(key):
+            search_dirs.append(Path(meta[key]))
+    if meta.get("config_source"):
+        search_dirs.append(Path(meta["config_source"]).parent)
+
+    for base in search_dirs:
+        label_path = base / "model" / "labels_object.txt"
+        if not label_path.exists():
+            continue
+        labels = [ln.strip() for ln in label_path.read_text(encoding="utf-8").splitlines()
+                  if ln.strip()]
+        if labels:
+            return len(labels)
+
+    values = []
+    for col in ("ground_truth", "prediction"):
+        if col in df.columns:
+            values.extend(df[col].dropna().astype(str).unique().tolist())
+    if values:
+        return len(set(values))
+    return len(CLASS_LABELS)
+
+
+def _npz_int(npz, key: str) -> Optional[int]:
+    if key not in npz.files:
+        return None
+    try:
+        return int(np.asarray(npz[key]).item())
+    except Exception:
+        return None
+
+
+def _feature_processor_candidates(meta: Dict) -> List[Path]:
+    """Likely feature_processor files, ordered from exact PCA label to generic."""
+    bases = []
+    for key in ("python_example_dir", "raw_data_dir"):
+        if meta.get(key):
+            bases.append(Path(meta[key]) / "model")
+    if meta.get("config_source"):
+        bases.append(Path(meta["config_source"]).parent / "model")
+
+    names = []
+    pca_label = meta.get("pca_label")
+    if meta.get("pca_enabled") and pca_label:
+        names.extend([f"feature_processor_{pca_label}.npz", "feature_processor_pca95var.npz"])
+    names.append("feature_processor.npz")
+
+    out: List[Path] = []
+    seen = set()
+    for base in bases:
+        for name in names:
+            cand = (base / name).resolve()
+            if cand in seen:
+                continue
+            seen.add(cand)
+            out.append(cand)
+    return out
+
+
+def _infer_feature_dims(meta: Dict) -> Dict[str, Optional[int]]:
+    """Infer raw and stored feature dimensions from cached feature_processor .npz files."""
+    raw_dim = None
+    output_dim = None
+    for cand in _feature_processor_candidates(meta):
+        if not cand.exists():
+            continue
+        try:
+            with np.load(cand, allow_pickle=True) as z:
+                raw_dim = raw_dim or _npz_int(z, "input_dim")
+                output_dim = output_dim or _npz_int(z, "output_dim")
+                if raw_dim and output_dim:
+                    break
+        except Exception:
+            continue
+
+    meta_components = meta.get("pca_components")
+    try:
+        meta_components = int(meta_components) if meta_components is not None else None
+    except (TypeError, ValueError):
+        meta_components = None
+
+    if meta.get("pca_enabled"):
+        feature_dim = meta_components or output_dim
+        pca_components = feature_dim
+    else:
+        feature_dim = raw_dim
+        pca_components = None
+
+    return {
+        "raw_feature_dim": raw_dim,
+        "feature_dim": feature_dim,
+        "pca_components": pca_components,
+        "pca_components_metadata": meta_components,
+    }
+
+
+def _read_classifier_config(meta: Dict) -> Dict:
+    cfg_path = meta.get("config_source")
+    if not cfg_path:
+        return {}
+    path = Path(cfg_path)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _adaptive_classifier_config(meta: Dict) -> Dict:
+    cfg = _read_classifier_config(meta)
+    if "tinylcm" in cfg:
+        return (cfg.get("tinylcm") or {}).get("adaptive_classifier") or {}
+    return cfg.get("adaptive_classifier") or {}
+
+
+def _classifier_state_kb(meta: Dict, n_classes: int,
+                         feature_dim: Optional[int],
+                         samples_per_class: Optional[int]) -> float:
+    """Approximate on-device classifier state for the vectors stored at runtime."""
+    if not feature_dim or not n_classes:
+        return np.nan
+
+    ctype = meta.get("classifier_type")
+    if ctype == "NearestCentroidClassifier":
+        n_vectors = n_classes
+    elif ctype == "KMeansPrototypeClassifier":
+        acfg = _adaptive_classifier_config(meta)
+        n_vectors = n_classes * int(acfg.get("m_prototypes", 3))
+    else:
+        if not samples_per_class:
+            return np.nan
+        n_vectors = n_classes * int(samples_per_class)
+    return n_vectors * int(feature_dim) * 4 / 1024.0
+
+
 def load_experiment(exp_dir: Path) -> Optional[Dict]:
     """Return one flat dict of metrics for a single experiment, or None if incomplete."""
     meta_path = exp_dir / "experiment_metadata.json"
@@ -75,17 +250,40 @@ def load_experiment(exp_dir: Path) -> Optional[Dict]:
     if not meta_path.exists() or merged_path is None:
         return None  # experiment didn't finish (TIMEOUT) — skip
 
-    meta = json.loads(meta_path.read_text())
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
     df = pd.read_csv(merged_path)
+    scenario_name = meta.get("scenario_name")
+    if not scenario_name and exp_dir.parent.name.startswith("scenario_"):
+        scenario_name = exp_dir.parent.name
+    dataset_name = meta.get("dataset_name") or _infer_dataset_name(scenario_name)
+    classifier_type = meta.get("classifier_type")
+    dims = _infer_feature_dims(meta)
+    n_classes = _read_label_count(meta, df)
+    samples_per_class = meta.get("samples_per_class")
+    experiment_id = meta.get("experiment_id", exp_dir.name)
+    run_id = f"{scenario_name}/{experiment_id}" if scenario_name else experiment_id
 
     row: Dict = {
-        "experiment_id":     meta.get("experiment_id", exp_dir.name),
+        "run_id":            run_id,
+        "experiment_id":     experiment_id,
+        "scenario_name":     scenario_name,
+        "dataset_name":      dataset_name,
+        "classifier_type":   classifier_type,
+        "classifier_label":  classifier_label(classifier_type),
+        "inference_resolution": "x".join(map(str, meta.get("inference_resolution", []))) or None,
+        "result_dir":        str(exp_dir),
         "pca_enabled":       meta.get("pca_enabled"),
-        "pca_components":    meta.get("pca_components"),
+        "pca_components":    dims["pca_components"],
+        "pca_components_metadata": dims["pca_components_metadata"],
         "pca_label":         meta.get("pca_label", "pca" if meta.get("pca_enabled") else "nopca"),
-        "samples_per_class": meta.get("samples_per_class"),
+        "pca_target":        meta.get("pca_target"),
+        "pca_target_type":   meta.get("pca_target_type"),
+        "samples_per_class": samples_per_class,
         "seed":              meta.get("seed"),
         "pca_explained_variance_pct": meta.get("pca_explained_variance_%"),
+        "raw_feature_dim":   dims["raw_feature_dim"],
+        "feature_dim":       dims["feature_dim"],
+        "n_classes":         n_classes,
         "n_images":          int(len(df)),
     }
 
@@ -121,14 +319,16 @@ def load_experiment(exp_dir: Path) -> Optional[Dict]:
     else:
         row["memory_rss_mb_mean"] = row["memory_rss_mb_max"] = np.nan
 
-    # ── Analytical KNN store size (deterministic, isolates the sample cost) ──
-    #   stored floats = samples_per_class × n_classes × feature_dim × 4 bytes
-    feat_dim = meta.get("pca_components") if meta.get("pca_enabled") else None
-    if feat_dim and meta.get("samples_per_class"):
-        n_classes = len(CLASS_LABELS)
-        row["knn_store_kb"] = (meta["samples_per_class"] * n_classes * feat_dim * 4) / 1024.0
+    # ── Analytical vector storage (deterministic, isolates the sample/prototype cost) ──
+    # support_set_kb is the selected reference budget; classifier_state_kb is the
+    # vectors the deployed classifier stores at runtime (KNN samples, centroids, prototypes).
+    feat_dim = row["feature_dim"]
+    if feat_dim and samples_per_class:
+        row["support_set_kb"] = (int(samples_per_class) * n_classes * int(feat_dim) * 4) / 1024.0
     else:
-        row["knn_store_kb"] = np.nan  # raw feature dim unknown for no-PCA runs
+        row["support_set_kb"] = np.nan
+    row["classifier_state_kb"] = _classifier_state_kb(meta, n_classes, feat_dim, samples_per_class)
+    row["knn_store_kb"] = row["support_set_kb"]  # legacy column name used by older notebooks
 
     # ── Drift events ────────────────────────────────────────────────────────
     if "drift_detected" in df.columns:
@@ -151,15 +351,16 @@ def load_experiment(exp_dir: Path) -> Optional[Dict]:
 
 def build_summary(results_dir: Path) -> pd.DataFrame:
     rows = []
-    for exp_dir in sorted(results_dir.glob("exp_*")):
-        if not exp_dir.is_dir():
-            continue
+    for exp_dir in _discover_experiment_dirs(results_dir):
         r = load_experiment(exp_dir)
         if r:
             rows.append(r)
     if not rows:
         raise SystemExit(f"No completed experiments found under {results_dir}")
-    df = pd.DataFrame(rows).sort_values(["pca_label", "samples_per_class", "seed"])
+    sort_cols = ["dataset_name", "scenario_name", "classifier_label",
+                 "pca_label", "samples_per_class", "seed"]
+    sort_cols = [c for c in sort_cols if c in pd.DataFrame(rows).columns]
+    df = pd.DataFrame(rows).sort_values(sort_cols)
     return df.reset_index(drop=True)
 
 
@@ -171,8 +372,12 @@ METRICS = [
     ("accuracy",              "Accuracy"),
     ("net_energy_per_image_J","Net energy per image (J)"),
     ("avg_power_W",           "Avg power (W)"),
+    ("net_avg_power_W",       "Net avg power (W)"),
     ("cpu_percent_mean",      "CPU (%)"),
     ("memory_rss_mb_mean",    "Memory RSS (MB)"),
+    ("memory_rss_mb_max",     "Peak memory RSS (MB)"),
+    ("classifier_state_kb",   "Classifier state (KB)"),
+    ("support_set_kb",        "Reference support budget (KB)"),
     ("latency_ms_mean",       "Latency (ms)"),
 ]
 
@@ -189,19 +394,28 @@ def _ci95(x: np.ndarray) -> float:
     return float(1.96 * sem)  # normal approx fallback
 
 
-def aggregate(summary: pd.DataFrame) -> pd.DataFrame:
-    group_cols = ["pca_label", "pca_enabled", "samples_per_class"]
+def aggregate(summary: pd.DataFrame, group_cols: Optional[Sequence[str]] = None) -> pd.DataFrame:
+    if group_cols is None:
+        group_cols = ["pca_label", "pca_enabled", "samples_per_class"]
+    group_cols = list(group_cols)
     out_rows = []
     for keys, g in summary.groupby(group_cols, dropna=False):
+        if not isinstance(keys, tuple):
+            keys = (keys,)
         rec = dict(zip(group_cols, keys))
         rec["n_seeds"] = int(len(g))
         for col, _ in METRICS:
+            if col not in g.columns:
+                continue
             vals = pd.to_numeric(g[col], errors="coerce").to_numpy(dtype=float)
             rec[f"{col}_mean"] = float(np.nanmean(vals)) if np.any(~np.isnan(vals)) else np.nan
             rec[f"{col}_std"]  = float(np.nanstd(vals, ddof=1)) if np.sum(~np.isnan(vals)) > 1 else np.nan
             rec[f"{col}_ci95"] = _ci95(vals)
         out_rows.append(rec)
-    return pd.DataFrame(out_rows).sort_values(["pca_label", "samples_per_class"]).reset_index(drop=True)
+    sort_cols = [c for c in group_cols if c in {"dataset_name", "scenario_name",
+                                                "classifier_label", "pca_label",
+                                                "samples_per_class"}]
+    return pd.DataFrame(out_rows).sort_values(sort_cols).reset_index(drop=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -210,14 +424,15 @@ def aggregate(summary: pd.DataFrame) -> pd.DataFrame:
 
 def _plot_metric_vs_samples(ax, agg: pd.DataFrame, metric: str, title: str):
     """One metric vs samples-per-class, one line per PCA config, with CI band."""
-    for pca_label, sub in agg.groupby("pca_label"):
+    label_col = "plot_label" if "plot_label" in agg.columns else "pca_label"
+    for label, sub in agg.groupby(label_col):
         sub = sub.sort_values("samples_per_class")
         x = sub["samples_per_class"].to_numpy()
         y = sub[f"{metric}_mean"].to_numpy()
         ci = sub[f"{metric}_ci95"].to_numpy()
         if np.all(np.isnan(y)):
             continue
-        line, = ax.plot(x, y, marker="o", label=pca_label)
+        line, = ax.plot(x, y, marker="o", label=label)
         ci_safe = np.nan_to_num(ci, nan=0.0)
         ax.fill_between(x, y - ci_safe, y + ci_safe, alpha=0.18, color=line.get_color())
     ax.set_title(title)
@@ -349,7 +564,8 @@ def per_experiment_timeline(exp_dir: Path, out_dir: Path):
 def find_sweet_spot(agg: pd.DataFrame, frac: float = 0.99) -> Dict:
     """Smallest samples-per-class reaching `frac` of the max mean accuracy, per pipeline."""
     out = {}
-    for pca_label, sub in agg.groupby("pca_label"):
+    label_col = "plot_label" if "plot_label" in agg.columns else "pca_label"
+    for label, sub in agg.groupby(label_col):
         sub = sub.sort_values("samples_per_class")
         acc = sub["accuracy_mean"]
         if acc.notna().sum() == 0:
@@ -357,7 +573,7 @@ def find_sweet_spot(agg: pd.DataFrame, frac: float = 0.99) -> Dict:
         target = frac * acc.max()
         reached = sub[acc >= target]
         if not reached.empty:
-            out[pca_label] = {
+            out[label] = {
                 "max_accuracy": float(acc.max()),
                 "target_accuracy": float(target),
                 "sweet_spot_samples_per_class": int(reached["samples_per_class"].iloc[0]),
@@ -512,7 +728,15 @@ def main():
     summary.to_csv(out_dir / "experiment_summary.csv", index=False)
     print(f"[analyze] {len(summary)} experiments -> experiment_summary.csv")
 
-    agg = aggregate(summary)
+    multi_scenario = summary["scenario_name"].nunique(dropna=True) > 1
+    if multi_scenario:
+        group_cols = ["scenario_name", "classifier_label", "pca_label",
+                      "pca_enabled", "samples_per_class"]
+    else:
+        group_cols = None
+    agg = aggregate(summary, group_cols)
+    if multi_scenario:
+        agg["plot_label"] = agg["scenario_name"].fillna("unknown") + " / " + agg["pca_label"].fillna("unknown")
     agg.to_csv(out_dir / "aggregated_by_config.csv", index=False)
     print(f"[analyze] {len(agg)} (pca x samples) cells -> aggregated_by_config.csv")
 
@@ -523,13 +747,18 @@ def main():
 
     if not args.no_per_experiment:
         pe_dir = out_dir / "per_experiment"
-        for exp_dir in sorted(results_dir.glob("exp_*")):
-            if exp_dir.is_dir():
-                per_experiment_timeline(exp_dir, pe_dir)
+        for exp_dir in _discover_experiment_dirs(results_dir):
+            per_experiment_timeline(exp_dir, pe_dir)
         print(f"[analyze] per-experiment timelines -> {pe_dir}")
 
     sweet = find_sweet_spot(agg)
-    pca = pca_effect(summary)
+    if multi_scenario:
+        pca = {}
+        for scenario, sub in summary.groupby("scenario_name"):
+            for metric, rec in pca_effect(sub).items():
+                pca[f"{scenario} / {metric}"] = rec
+    else:
+        pca = pca_effect(summary)
     write_report(summary, agg, sweet, pca, out_dir / "analysis_report.md")
     print(f"[analyze] report -> {out_dir / 'analysis_report.md'}")
     print("[analyze] done.")

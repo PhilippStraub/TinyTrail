@@ -80,7 +80,7 @@ KNN_USE_NUMPY = True  # (deprecated) Laufzeit nutzt immer NumPy-Vektorisierung
 #   "nearest_centroid"-> NearestCentroidClassifier (1 Prototyp/Klasse = Mittelwert)
 #   "kmeans"          -> KMeansPrototypeClassifier (m Prototypen/Klasse via K-Means)
 CLASSIFIER_TYPE = "nearest_centroid"
-KMEANS_M_PROTOTYPES = 3  # Anzahl Prototypen pro Klasse für CLASSIFIER_TYPE == "kmeans"
+KMEANS_M_PROTOTYPES = 5  # Anzahl Prototypen pro Klasse für CLASSIFIER_TYPE == "kmeans"
 
 # Speicherort für den initialen k-NN Zustand
 OUTPUT_STATE_DIR = current_dir / "initial_state"  # Scenario initial_state directory
