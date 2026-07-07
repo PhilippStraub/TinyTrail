@@ -3,12 +3,9 @@
   "nats_url": "nats://localhost:4222",
 
   "experiment_names": [
-    "scenario_cifar10_kmeans",
-    "scenario_cifar10_knn_benchmark",
-    "scenario_cifar10_nearest_centroid",
-    "scenario_imagenette_nearest_centroid",
+    "scenario_imagenette_knn",
     "scenario_imagenette_kmeans",
-    "scenario_imagenette_knn"
+    "scenario_imagenette_nearest_centroid"
   ],
 
   "result_timeout_seconds": 1800,
@@ -16,8 +13,7 @@
   "skip_completed": true,
 
   "pca_configs": [
-    { "enabled": true,  "explained_variance": 0.95 },
-    {"enabled": false}
+    { "enabled": true,  "explained_variance": 0.95 }
   ],
 
   "samples_per_class": [2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
