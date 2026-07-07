@@ -16,6 +16,23 @@ If images are stored in per-class folders and
 used as ground-truth label for basic accuracy logging.
 """
 
+# --- BLAS/OpenMP thread pinning — MUST run before numpy/cv2/BLAS import ---
+# On the Pi's ARM OpenBLAS an unpinned PCA projection matmul (1280 -> 608 on
+# ImageNet/Imagenette) spins up ~3 native worker threads, roughly tripling
+# process CPU and net power and corrupting the energy measurement (the
+# "thread-count confound"). OpenBLAS reads these env vars at import time, so
+# they MUST be set before numpy is first imported anywhere in the process.
+import os
+for _blas_var in (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "BLIS_NUM_THREADS",
+):
+    os.environ.setdefault(_blas_var, "1")
+
 import argparse
 import csv
 import json
@@ -438,6 +455,19 @@ def setup_logging(
     logger = logging.getLogger('drift_detection')
     logger.info(f'Logging initialized at level {log_level}')
     logger.info(f'Log file: {log_file}')
+
+    # Confound guard: confirm the BLAS/OpenMP thread pin (set in the module
+    # header) actually took effect. If process_cpu_percent climbs well above
+    # ~100% during PCA inference, OpenBLAS went multi-threaded and the energy
+    # numbers are contaminated (the "thread-count confound").
+    _openblas = os.environ.get('OPENBLAS_NUM_THREADS', 'unset')
+    _omp = os.environ.get('OMP_NUM_THREADS', 'unset')
+    logger.info(f'BLAS thread pin: OPENBLAS_NUM_THREADS={_openblas} OMP_NUM_THREADS={_omp} '
+                f'(expect 1 — keeps PCA single-threaded for clean energy measurement)')
+    if _openblas != '1' or _omp != '1':
+        logger.warning('BLAS threads are NOT pinned to 1 — PCA net-energy per image will be '
+                       'inflated by OpenBLAS multithreading (thread-count confound). '
+                       'Do not trust the energy results from this run.')
 
 
 def create_directory_structure(config: Dict) -> None:
