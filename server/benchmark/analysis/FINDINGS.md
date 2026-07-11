@@ -8,8 +8,8 @@ TinyMLOps framework.
 
 Final generated export sets:
 
-- `exports/cifar10/analysis_20260701_230135/`
-- `exports/imagenet/analysis_20260701_230136/`
+- `exports/cifar10/analysis_20260705_193251/`
+- `exports/imagenet/analysis_20260708_140042/` (thread-pinned re-run; supersedes the earlier confounded Imagenette runs)
 
 The exports contain the full tables, figures, generated findings, and the project-requirements
 checklists used for the write-up.
@@ -68,6 +68,11 @@ Smallest `samples_per_class` reaching 95% of that scenario/PCA pipeline's best m
 | Imagenette | Nearest Centroid | +0.00142 | 0.03143 |
 
 ## Energy Snapshot
+
+> **⚠️ The Imagenette energy figures below are from the confounded multi-threaded run.** Their high
+> `pca95var` cost is an OpenBLAS/numpy multi-threading artifact, not an intrinsic PCA cost. For the
+> write-up use the thread-pinned re-run `exports/imagenet/analysis_20260708_140042/` and regenerate
+> this table from it. The CIFAR-10 figures are unaffected.
 
 Net charge per approximately 200-image run, averaged by classifier/PCA:
 
