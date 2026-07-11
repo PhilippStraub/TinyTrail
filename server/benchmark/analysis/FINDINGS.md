@@ -22,8 +22,10 @@ checklists used for the write-up.
 2. **Classifier comparison:** Nearest Centroid and KMeans are competitive with KNN on CIFAR-10;
    on Imagenette, KNN and Nearest Centroid are the strongest observed classifiers.
 3. **PCA trade-off:** CIFAR-10 `pca95var` keeps 95.14% variance and slightly improves accuracy.
-   Imagenette `pca95var` keeps 95.02% variance, but its measured energy cost is notably higher,
-   so the PCA choice should be argued as a dataset-specific accuracy/memory/energy trade-off.
+   Imagenette `pca95var` keeps 95.02% variance at essentially unchanged energy cost (`pca95var` ≈
+   `nopca`, marginally lower by paired Wilcoxon) — the earlier "notably higher" figure was an
+   OpenBLAS multi-threading measurement artifact, now corrected. PCA is therefore a low-cost
+   accuracy/memory option on Imagenette rather than an energy trade-off.
 
 ## Scenario Coverage
 
@@ -69,10 +71,9 @@ Smallest `samples_per_class` reaching 95% of that scenario/PCA pipeline's best m
 
 ## Energy Snapshot
 
-> **⚠️ The Imagenette energy figures below are from the confounded multi-threaded run.** Their high
-> `pca95var` cost is an OpenBLAS/numpy multi-threading artifact, not an intrinsic PCA cost. For the
-> write-up use the thread-pinned re-run `exports/imagenet/analysis_20260708_140042/` and regenerate
-> this table from it. The CIFAR-10 figures are unaffected.
+> **Imagenette figures use the thread-pinned re-run `exports/imagenet/analysis_20260708_140042/`.**
+> The earlier ~2× `pca95var` energy was an OpenBLAS/numpy multi-threading artifact and is now
+> resolved (`pca95var` ≈ `nopca`). CIFAR-10 figures are unaffected.
 
 Net charge per approximately 200-image run, averaged by classifier/PCA:
 
@@ -81,9 +82,9 @@ Net charge per approximately 200-image run, averaged by classifier/PCA:
 | CIFAR-10 | KMeans | 0.4554 | 0.4649 |
 | CIFAR-10 | KNN | 0.5072 | 0.5003 |
 | CIFAR-10 | Nearest Centroid | 0.4525 | 0.4990 |
-| Imagenette | KMeans | 3.2857 | 7.3963 |
-| Imagenette | KNN | 3.4307 | 7.4774 |
-| Imagenette | Nearest Centroid | 3.2422 | 7.5971 |
+| Imagenette | KMeans | 3.2857 | 3.2480 |
+| Imagenette | KNN | 3.4307 | 3.3376 |
+| Imagenette | Nearest Centroid | 3.2422 | 3.3087 |
 
 ## Use In The Write-Up
 
