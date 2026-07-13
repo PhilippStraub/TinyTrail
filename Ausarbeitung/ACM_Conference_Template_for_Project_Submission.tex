@@ -52,8 +52,8 @@
 %% them by basename when the document is compiled from the Ausarbeitung folder.
 \graphicspath{%
   {../}%
-  {../server/benchmark/analysis/exports/cifar10/analysis_20260705_193251/figures/}%
-  {../server/benchmark/analysis/exports/imagenet/analysis_20260708_140042/figures/}%
+  {../server/benchmark/analysis/exports/cifar10/analysis_20260713_083731/figures/}%
+  {../server/benchmark/analysis/exports/imagenet/analysis_20260713_083731/figures/}%
 }
 %%
 %% \BibTeX command to typeset BibTeX logo in the docs
@@ -314,7 +314,7 @@ Imagenette~\cite{howard2019imagenette}, a 10-class subset of ImageNet~\cite{deng
 Its extracted feature representation has 1280 dimensions without PCA and 608 dimensions with \texttt{pca95var}, retaining 95.02\% of the variance.
 For both dataset families, the scenario-level feature processing and PCA preparation use the corresponding training split.
 The deployed distance-based classifier is then initialized from a sampled reference store whose size is controlled by the samples-per-class setting; benchmark test images are evaluated separately from this sampled reference store.
-Each run evaluates a median of 200 benchmark test images.
+Each run evaluates exactly 200 benchmark test images.
 
 \subsection{Model Training and Architecture Creation}
 \label{sec:training}
@@ -337,10 +337,13 @@ Therefore, the exact per-epoch training and validation accuracy of the feature e
 \label{sec:measurement}
 All resource measurements are collected on a Raspberry Pi Zero 2W.
 The device is powered by a Voltcraft DSP-3005 external power supply at 5~V, and the external power log is integrated per experiment to obtain the energy consumed during that run.
+Each experiment corresponds to a bounded on-device measurement window that covers the classification of that run's 200 test images and over which the resource and power logs are recorded.
+This window lasted about 49~s per run on CIFAR-10 and about 116~s on Imagenette (overall range roughly 49--124~s across the 1440 deployments), while the mean per-image inference latency was about 45~ms on CIFAR-10 and 356~ms on Imagenette, with the remaining per-image time spent on image loading and preprocessing.
+The window length is therefore set almost entirely by the shared feature extraction and preprocessing rather than by the lightweight distance-based classifier, so it barely varies across classifiers or sample-count settings but differs clearly between the two datasets.
 For each deployed configuration, the pipeline records classification accuracy, per-image latency, CPU usage, and resident-set-size (RSS) memory from the merged benchmark and resource logs written on the device.
 In addition, it records the analytical classifier state size and reference-store size, so that memory is represented both as observed process memory and as model-specific storage demand; these storage metrics are the deployment-footprint indicators that grow directly with the number of stored reference samples and with the feature dimensionality.
 Gross power and energy are derived from the external supply metadata, while net power and net energy subtract a separately measured idle baseline of the device, so that the reported net values approximate the additional cost caused by the inference workload.
-For the Imagenette energy measurements, BLAS/OpenMP execution was pinned to one thread so that multi-threaded PCA projection would not distort the energy comparison across configurations; an earlier, non-pinned Imagenette run had shown an inflated PCA energy figure that was traced to OpenBLAS multi-threading and subsequently corrected by the thread-pinned re-run used here.
+All energy measurements were taken under single-threaded BLAS/OpenMP execution, so that multi-threaded PCA projection could not distort the energy comparison across configurations. For CIFAR-10, the small 31-dimensional PCA projection never engaged OpenBLAS multi-threading, so those runs were single-threaded regardless. For Imagenette, the larger 608-dimensional projection did: an earlier, non-pinned run showed an inflated PCA energy figure that was traced to OpenBLAS multi-threading and corrected by explicitly pinning BLAS/OpenMP to one thread and re-running the experiments.
 
 \subsection{Data Analysis Procedures}
 \label{sec:analysis}
@@ -363,7 +366,7 @@ The following subsections answer the research questions in detail.
 \begin{figure*}[t]
   \centering
   \includegraphics[width=\textwidth]{cifar10_summary_grid.png}
-  \caption{CIFAR-10 benchmark summary for the current export.}
+  \caption{CIFAR-10 benchmark summary.}
   \Description{Benchmark summary grid showing CIFAR-10 accuracy and resource measurements across classifiers, PCA settings, and reference sample counts.}
   \label{fig:cifar10-summary-grid}
 \end{figure*}
@@ -371,7 +374,7 @@ The following subsections answer the research questions in detail.
 \begin{figure*}[t]
   \centering
   \includegraphics[width=\textwidth]{imagenet_summary_grid.png}
-  \caption{Imagenette benchmark summary for the corrected, thread-pinned export.}
+  \caption{Imagenette benchmark summary.}
   \Description{Benchmark summary grid showing Imagenette accuracy and resource measurements across classifiers, PCA settings, and reference sample counts.}
   \label{fig:imagenet-summary-grid}
 \end{figure*}
@@ -602,14 +605,14 @@ The current analysis reports accuracy, latency, memory, CPU, energy, and the cla
 Future versions of the framework should allow users to specify constraints such as maximum memory, maximum energy per image, or minimum accuracy, and then automatically rank feasible configurations.
 
 The fourth improvement potential is broader external validation.
-The current benchmark uses CIFAR-10 and Imagenette with ten seeds and a median of 200 test images per run.
+The current benchmark uses CIFAR-10 and Imagenette with ten seeds and exactly 200 test images per run.
 Additional datasets, different numbers of classes, and task-specific embedded use cases would make it easier to determine whether the observed sample-count knees and PCA behavior generalize beyond the evaluated image-classification scenarios.
 
 \subsection{Threat to Validity}
 \paragraph{Internal validity.}
 Internal validity may be affected by measurement noise on the target device.
 Although the experiments were repeated across ten seeds and power measurements were collected with an external power supply, background activity on the Raspberry Pi Zero 2W, thermal effects, and operating-system scheduling can still influence latency, CPU, RSS memory, and energy measurements.
-BLAS/OpenMP execution was pinned to one thread for clean single-threaded energy measurement, which specifically removed an earlier Imagenette PCA energy artifact caused by multi-threaded linear-algebra execution.
+Energy was measured under single-threaded BLAS/OpenMP execution; CIFAR-10's small projection stayed single-threaded inherently, while for Imagenette an explicit one-thread pin removed an earlier PCA energy artifact caused by multi-threaded BLAS matrix operations in the PCA projection.
 The study reduces the remaining risk by aggregating results across seeds and by reporting confidence intervals, but it cannot fully eliminate device-level noise.
 Another internal threat is that PCA is measured as part of the deployed inference pipeline; therefore, the reported PCA effect includes both dimensionality reduction and classification effects rather than isolating the classifier alone.
 
