@@ -82,6 +82,9 @@
 %%  June 03--05, 2018, Woodstock, NY}
 \acmISBN{978-1-4503-XXXX-X/2018/06}
 
+\settopmatter{printacmref=false, printccs=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+
 
 %%
 %% Submission ID.
@@ -297,6 +300,13 @@ The framework can execute KNN, k-means-based classification, and nearest centroi
 KNN is considered because it makes the influence of different numbers of stored reference samples per class directly visible.
 K-means is considered because it can compress the reference representation into a smaller set of centroids and therefore provides an efficiency-oriented alternative.
 Nearest centroid classification serves as a compact prototype-based baseline with minimal stored reference information.
+Together, the three algorithms span the main design choices for a future on-device learning extension.
+KNN is the uncompressed reference-store baseline: it keeps labeled feature vectors and classifies by neighborhood comparison, so adding a new supervised sample can be represented as inserting another reference vector into the classifier state~\cite{cover1967nearest,disabato2020incremental}.
+This makes KNN the most direct method for studying the sample-size sweet spot, but it also exposes the cost of storing and searching many references.
+K-means represents an intermediate design point: instead of retaining all reference vectors, it summarizes groups of embeddings through a small number of centroids, following the standard k-means objective of minimizing distances to cluster centers~\cite{lloyd1982least,kanungo2002efficient}.
+It is therefore included to test whether a prototype-based compression of the reference store can preserve accuracy while reducing deployment footprint.
+Nearest Centroid is the most compact design point: it stores only one centroid per class and assigns a query to the nearest class centroid~\cite{calafiore2019sparse,manning2008introduction}.
+It is included as a lower-footprint baseline that reveals how much accuracy is lost, or retained, when each class is represented by a single prototype.
 The comparison of these methods provides the context for the research questions: the study investigates which algorithmic representation, sample size, and PCA setting enable the most favorable trade-off between accuracy and efficiency for on-device learning.
 
 \section{Research Design}
