@@ -51,9 +51,9 @@
 %% root (Framework-detailed.png). These search paths let \includegraphics find
 %% them by basename when the document is compiled from the Ausarbeitung folder.
 \graphicspath{%
-  {../}%
-  {../server/benchmark/analysis/exports/cifar10/analysis_20260713_083731/figures/}%
-  {../server/benchmark/analysis/exports/imagenet/analysis_20260713_083731/figures/}%
+  {../../}%
+  {../../server/benchmark/analysis/exports/cifar10/analysis_20260713_083731/figures/}%
+  {../../server/benchmark/analysis/exports/imagenet/analysis_20260713_083731/figures/}%
 }
 %%
 %% \BibTeX command to typeset BibTeX logo in the docs
@@ -651,6 +651,11 @@ Beyond these concrete findings, the study demonstrates a reusable way to vary ar
 Future work should continue to profile the PCA projection separately, especially for high-dimensional Imagenette features, and should persist and report backbone training/validation accuracy.
 The benchmark should also use denser sample-count sweeps around the observed knees and integrate deployment constraints such as maximum energy, memory, or latency into the configuration-selection process.
 Finally, the results should be validated on additional datasets, different class counts, and further embedded hardware platforms before generalizing the recommended sweet spots to broader TinyML use cases.
+
+\section*{Declaration of Generative AI and AI-Assisted Technologies}
+During the preparation of this work, the authors used Anthropic's Claude (via the Claude Code assistant) in order to support the implementation of the benchmark and analysis code, to help generate and refine the analysis figures, and to assist with language editing and structuring of the manuscript.
+The authors designed the study, formulated the research questions, configured and executed all deployments on the Raspberry Pi Zero~2W, collected and validated the resource and energy measurements, and interpreted the results.
+After using this tool, the authors reviewed and edited the content as needed and take full responsibility for the submission's content.
 
 %%
 %% The next two lines define the bibliography style to be used, and
