@@ -226,19 +226,29 @@ On-device learning intensifies this challenge because the system must not only e
 Distance-based methods form a suitable family of methods for this purpose.
 Because they compare feature vectors, they cannot be applied to raw images directly; instead they rely on a feature extractor that produces a compact embedding, and the distance-based classifier is then defined over that embedding.
 Disabato and Roveri~\cite{disabato2020incremental} describe this pattern for incremental on-device TinyML: a frozen, pre-trained feature extractor is combined with a lightweight classifier that can be updated incrementally from new samples on the device.
+This frozen-backbone-plus-lightweight-classifier pattern is widely used: latent-replay continual learning stores intermediate features of a frozen network~\cite{ravaglia2021tinyml}, and combining a pre-trained CNN feature extractor with a classical classifier such as an SVM is an established approach~\cite{shima2018augmentation}.
 This study follows the same principle, using a convolutional feature extractor exported to TensorFlow Lite followed by a distance-based classifier.
 KNN classifies a new observation from the labels of nearby stored samples~\cite{cover1967nearest}; in the incremental TinyML setting of Disabato and Roveri, this makes KNN attractive because new supervised samples can be inserted without a separate training phase~\cite{disabato2020incremental}.
-K-means reduces the stored representation by summarizing data through cluster centers; the k-means objective is to choose centers that minimize the mean squared distance from data points to their nearest center, and Lloyd's algorithm repeatedly moves centers to the centroid of their assigned points~\cite{kanungo2002efficient}.
-Nearest centroid classification computes class centroids during training and assigns a test sample to the class of the nearest centroid~\cite{calafiore2019sparse}.
+K-means reduces the stored representation by summarizing data through cluster centers; the k-means objective is to choose centers that minimize the mean squared distance from data points to their nearest center, and Lloyd's algorithm repeatedly moves centers to the centroid of their assigned points~\cite{lloyd1982least,kanungo2002efficient}; broader overviews of clustering are given by Jain~\cite{jain2010clustering}.
+Nearest centroid classification computes class centroids during training and assigns a test sample to the class of the nearest centroid~\cite{calafiore2019sparse,manning2008introduction}.
 These methods are relevant for TinyML because their representation and update behavior can be easier to control than that of more complex model families.
 At the same time, they create an explicit trade-off: storing more reference information can improve accuracy, but it also increases memory requirements and inference cost.
 PCA~\cite{jolliffe2002pca} can reduce feature dimensionality before classification and thereby enable efficiency gains, but it can also remove information that is relevant for accurate classification.
 
 The feature extractors used in this work build on established image-classification architectures.
 The Imagenette pipeline uses an ImageNet-pretrained MobileNetV2 backbone~\cite{sandler2018mobilenetv2}, a mobile-friendly convolutional architecture.
-Imagenette is treated in this study as a ten-class ImageNet subset [QUELLE FEHLT: local, citable source needed that verifies Imagenette's definition, class selection, and relationship to ImageNet; the current project material contains only the BibTeX URL entry \texttt{howard2019imagenette}, not a verifiable source document].
-The CIFAR-10 pipeline uses a smaller MobileNet-style network adapted to the low-resolution 32$\times$32 CIFAR-10 images~\cite{krizhevsky2009cifar}.
+Imagenette is a ten-class subset of ImageNet~\cite{deng2009imagenet} introduced by fast.ai for fast experimentation~\cite{howard2019imagenette}.
+The CIFAR-10 pipeline uses a smaller, low-resolution MobileNet-style network~\cite{yuan2022lowres} adapted to the 32$\times$32 CIFAR-10 images~\cite{krizhevsky2009cifar}.
 These datasets and backbones are common reference points for image classification on resource-constrained devices, which makes them suitable benchmarks for the sweet-spot and PCA analysis pursued here.
+
+A growing body of work targets learning and adaptation directly on resource-constrained devices.
+Ravaglia et al.~\cite{ravaglia2021tinyml} combine a frozen, quantized feature extractor with a replay memory of stored latent samples and show that 8-bit compression of these samples is almost lossless, which is closely related to the quantized reference vectors stored in this work.
+Tremonti et al.~\cite{tremonti2024empirical} empirically evaluate efficient TinyML architectures for class-incremental continual learning on CIFAR-10 and CORe50, while R{\"u}b et al.~\cite{rueb2024continual} and R{\"u}b~\cite{rueb2025thesis} pursue on-device training under tight resource budgets through dataset distillation, data selection, and sparse backpropagation.
+Dedicated continual-learning benchmarks such as CORe50~\cite{lomonaco2017core50}, together with rehearsal-free techniques over small non-i.i.d.\ batches~\cite{lomonaco2020rehearsal}, motivate keeping the amount of stored data small, and transfer-learning approaches retrain only parts of a CNN on the device to trade accuracy against energy~\cite{fragkou2022transfer}.
+Model-compression studies further show that INT8 quantization retains accuracy on standard benchmarks~\cite{shabir2025compression}.
+Prototype- and metric-based classifiers are a recurring theme in this setting: prototypical networks classify few-shot examples by distance to learned class prototypes~\cite{snell2017prototypical}, the nearest-class-mean classifier has been revisited for online class-incremental learning~\cite{mai2021supervised}, and exemplar-based methods such as iCaRL combine stored exemplars with nearest-mean classification~\cite{rebuffi2017icarl}.
+Because storing exemplars is costly, exemplar-free online continual learning explicitly targets the storage constraint~\cite{he2022exemplar}, and prototype-based schemes such as generalized learning vector quantization have been studied for edge devices~\cite{diao2021generalized}.
+In contrast to these continual-learning systems, the present work does not yet update the model on the device; it instead analyzes the inference pipeline and the reference-store trade-off on which such on-device learning would build.
 
 \subsection{Outline}
 Section~\ref{sec:framework} introduces the TinyMLOps framework, its components, and the model architecture that precedes the distance-based classifiers.
@@ -278,9 +288,9 @@ The extracted feature vector is then standardized and, in the PCA variants, proj
 Only the final, optionally PCA-reduced feature vector is passed to the distance-based classifier (KNN, Nearest Centroid, or KMeans), which produces the class prediction.
 
 The two dataset families use different feature extractors.
-For CIFAR-10, a compact low-resolution MobileNet-style network is trained from scratch on the 32$\times$32 images and produces a 160-dimensional feature vector.
+For CIFAR-10, a compact low-resolution MobileNet-style network~\cite{yuan2022lowres} is trained from scratch on the 32$\times$32 images and produces a 160-dimensional feature vector.
 For Imagenette, an ImageNet-pretrained MobileNetV2 backbone~\cite{sandler2018mobilenetv2} is used with 224$\times$224 input images and produces a 1280-dimensional feature vector.
-In both cases, the softmax classification head is only used during training of the backbone; the deployed artifact is the feature extractor, and the distance-based classifier replaces the softmax head at inference time.
+In both cases, the softmax classification head is only used during training of the backbone; the deployed artifact is the feature extractor, and the distance-based classifier replaces the softmax head at inference time~\cite{shima2018augmentation,ravaglia2021tinyml}.
 The standardization and PCA parameters are stored together as a feature processor and applied on the device, so that the same transformation is used consistently during benchmarking and would also be used during a future on-device learning step.
 
 The framework can execute KNN, k-means-based classification, and nearest centroid classification by exchanging only the classifier component while keeping the feature extractor and feature processor fixed.
@@ -312,7 +322,8 @@ Only the runtime-specific fields (PCA on/off, maximum reference samples, and the
 The evaluation uses two image-classification benchmark families.
 CIFAR-10~\cite{krizhevsky2009cifar} is used as a low-resolution benchmark with 32$\times$32 input images and ten classes.
 Its extracted feature representation has 160 dimensions without PCA and 31 dimensions with \texttt{pca95var}, retaining 95.14\% of the variance.
-Imagenette is used as a higher-resolution benchmark with 224$\times$224 input images [QUELLE FEHLT: local, citable source needed that verifies Imagenette's dataset definition and relationship to ImageNet; the current project material contains only the BibTeX URL entry \texttt{howard2019imagenette}, not a verifiable source document].
+Imagenette, a ten-class subset of ImageNet~\cite{deng2009imagenet,howard2019imagenette}, is used as a higher-resolution benchmark with 224$\times$224 input images.
+The choice of CIFAR-10 and Imagenette follows common practice in the small-data image-classification literature, where most studies rely on sub-sampled versions of standard benchmarks such as CIFAR and ImageNet~\cite{brigato2022small}; Imagenette in particular remains in active use as a benchmark in recent CNN evaluations~\cite{saberifard2025xtorch}.
 Its extracted feature representation has 1280 dimensions without PCA and 608 dimensions with \texttt{pca95var}, retaining 95.02\% of the variance.
 For both dataset families, the scenario-level feature processing and PCA preparation use the corresponding training split.
 The deployed distance-based classifier is then initialized from a sampled reference store whose size is controlled by the samples-per-class setting; benchmark test images are evaluated separately from this sampled reference store.
@@ -324,7 +335,7 @@ The feature extractor and the feature processor are created once per dataset fam
 In other words, KNN, KMeans, and Nearest Centroid for a given dataset share exactly the same feature extractor and the same PCA projection, so that differences between them are attributable to the classifier rather than to a different backbone.
 The backbones are trained with a fixed seed of 42 and a validation split of 0.2.
 The CIFAR-10 low-resolution MobileNet is trained from scratch on the CIFAR-10 training split, and the Imagenette backbone fine-tunes a pretrained MobileNetV2 (10 training epochs followed by 5 fine-tuning epochs).
-The backbones are then exported as INT8 TensorFlow Lite feature extractors and mirrored into the three classifier scenarios.
+The backbones are then exported as INT8 TensorFlow Lite feature extractors and mirrored into the three classifier scenarios; INT8 quantization is known to retain accuracy well on standard image benchmarks~\cite{shabir2025compression,ravaglia2021tinyml}.
 The benchmark itself does not retrain the backbone: it trains the pipeline on the full training split once and only varies the initialization reference-sample size on the device.
 
 The PCA configuration is a deliberate design choice rather than an incidental result.
