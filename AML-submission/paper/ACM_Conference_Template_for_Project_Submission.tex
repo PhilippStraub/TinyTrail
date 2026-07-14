@@ -43,7 +43,7 @@
 \renewcommand{\shortauthors}{Heller et al.}
 
 \begin{abstract}
-On-device learning enables embedded systems to adapt to new data locally, but TinyML deployments must balance accuracy with strict constraints on memory, latency, and energy consumption.
+TinyML deployments on remotely operated embedded systems must keep models accurate under concept drift while balancing strict constraints on memory, latency, and energy consumption.
 This work analyzes the inference pipeline of the TinyMLOps framework and evaluates distance-based classifiers as the groundwork for future on-device learning, investigating how classifier choice, reference-sample size, and Principal Component Analysis (PCA) affect the accuracy--efficiency trade-off.
 We compare KMeans, k-nearest neighbors (KNN), and Nearest Centroid classifiers on CIFAR-10 and Imagenette using no-PCA and \texttt{pca95var} variants.
 The benchmark covers 2 to 100 stored reference samples per class, ten seeds per configuration, and resource measurements collected on a Raspberry Pi Zero 2W with external power monitoring, for a total of 1440 completed deployments.
@@ -65,21 +65,23 @@ Beyond the concrete recommendation, the study demonstrates how the framework can
 \maketitle
 
 \section{Introduction}
-On-device learning enables embedded systems to adapt models locally without repeatedly transferring raw data to external infrastructure.
-This is particularly relevant for TinyML applications, where energy consumption, memory usage, latency, and classification quality must be balanced under strict resource constraints.
-A key motivation for adapting models directly on the device is concept drift: after deployment, the data distribution can change, and remotely operated or hard-to-reach systems such as Mars rovers, satellites, and drones can only be updated with high latency, if at all.
-In such settings, the ability to incorporate newly observed samples locally is highly relevant, but the on-device memory is limited, so new reference samples cannot be added without bound.
-Understanding how many reference samples are actually needed, and how the inference pipeline behaves under resource constraints, is therefore a prerequisite for any future on-device learning capability.
+TinyML brings machine learning to microcontrollers and other resource-constrained embedded devices, where energy consumption, memory usage, latency, and classification quality must be balanced under strict resource constraints.
+A key challenge for such deployments is concept drift: after a model has been deployed, the observed data distribution can change, so the model must be updated to stay accurate.
+This is particularly critical for remotely operated or hard-to-reach systems such as Mars rovers, satellites, and drones, which can only be accessed with high latency, if at all.
+In the TinyMLOps framework studied in this work, this update loop is handled by the surrounding infrastructure rather than on the device itself: the embedded device performs inference and drift detection, while retraining is carried out on a server and the updated model is packaged and deployed back to the device over a NATS JetStream messaging layer.
+Updating the model directly on the device (on-device learning) is a future extension of the framework and is not part of this work.
+Whether such an update loop is practical nonetheless depends on the on-device inference pipeline: the distance-based classifier stores reference samples that consume the device's limited memory, so new reference samples cannot be added without bound.
+Understanding how many reference samples are actually needed, and how the inference pipeline behaves under resource constraints, is therefore a prerequisite both for the current server-retrained deployment and for any future on-device learning capability.
 
 Distance-based methods such as k-nearest neighbors (KNN), k-means-based classification, and nearest centroid classification are attractive in this context because they can be updated from new reference samples with comparatively low training complexity.
 On image data, these methods are not applied to raw pixels directly: a feature extractor first maps each image to a compact embedding, and the distance-based classifier then operates on that embedding, optionally after dimensionality reduction~\cite{disabato2020incremental}.
 The practical suitability of such a pipeline strongly depends on architectural decisions, especially the number of stored reference samples, the use of dimensionality reduction, and the selected classification algorithm.
 
 \subsection{Research Objective and Research Questions}
-The objective of this work is to analyze the existing inference pipeline of the TinyMLOps framework in order to identify an accurate and efficient distance-based architecture for on-device learning.
+The objective of this work is to analyze the existing inference pipeline of the TinyMLOps framework in order to identify an accurate and efficient distance-based classifier configuration for its server-retrained, remotely deployed TinyML pipeline.
 The framework serves as the experimental setup for varying key architectural components and measuring their influence under comparable deployment conditions.
 In particular, this study investigates the number of stored reference samples per class, the use of Principal Component Analysis (PCA), and the selected classification algorithm.
-The analysis leads to a recommendation for which algorithm, sample size, and PCA configuration achieve a favorable trade-off between accuracy and efficiency, and this recommendation is intended to serve as the basis for implementing several use cases with on-device learning.
+The analysis leads to a recommendation for which algorithm, sample size, and PCA configuration achieve a favorable trade-off between accuracy and efficiency; this recommendation applies directly to the current server-retrained deployment and also lays the groundwork for a future extension of the framework toward on-device learning.
 
 Beyond the concrete recommendation, the same approach shows how the architecture components can be varied systematically and how different architectures can be applied to and benchmarked on different datasets under identical measurement conditions.
 The benchmark pipeline, the shared feature-processor construction, and the resource measurement setup therefore form a reusable foundation that can be transferred quickly to new data and new use cases: a new dataset or a new classifier can be plugged into the same framework and re-benchmarked with the same procedure, so that the accuracy--efficiency trade-off for a new deployment scenario can be re-established with limited additional effort.
@@ -93,7 +95,7 @@ This objective leads to the following research questions:
 \end{description}
 
 \subsection{Contribution}
-This work provides an empirical evaluation of distance-based architectures for on-device learning within the TinyMLOps framework.
+This work provides an empirical evaluation of distance-based classifier configurations for the inference pipeline of the TinyMLOps framework, as groundwork for a future on-device learning extension.
 It compares KNN, k-means-based classification, and nearest centroid classification in a shared measurement setup and analyzes how sample size and PCA influence accuracy as well as resource-related efficiency indicators such as energy per image, latency, process memory, and the classifier state/reference-store footprint.
 The results provide a configuration recommendation that can be used as a starting point for future TinyML use cases with the framework, and they document a reusable benchmarking procedure that allows the same architectural questions to be re-answered for new datasets.
 
@@ -206,7 +208,8 @@ To keep the description reproducible, the following subsections document what wa
 The benchmark evaluates three distance-based classifiers: KMeans, KNN, and Nearest Centroid~\cite{cover1967nearest,kanungo2002efficient,calafiore2019sparse}.
 For each classifier, two preprocessing variants are considered: \texttt{nopca}, which uses the full feature representation, and \texttt{pca95var}, which projects features to enough principal components to retain approximately 95\% of the variance.
 This variant follows the established PCA practice of selecting the retained dimensionality by a cumulative explained-variance criterion~\cite{jolliffe2002pca}.
-The 95\% threshold is used as a conservative, reproducible operating point: it preserves most of the measured feature-space variance while still reducing the deployed reference vectors, and its practical effect is evaluated directly against the corresponding \texttt{nopca} baseline.
+Concretely, the retained dimensionality is chosen as the smallest number of principal components whose cumulative explained variance reaches approximately 95\%, following the common recommendation to keep the number of dimensions that add up to a sufficiently large portion of the variance, e.g.\ 95\%~\cite[p.~223]{geron2019handson}.
+This threshold is used as a conservative, reproducible operating point: it preserves most of the measured feature-space variance while still reducing the deployed reference vectors, and its practical effect is evaluated directly against the corresponding \texttt{nopca} baseline.
 The number of stored reference samples per class is swept over 12 values: 2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, and 100.
 Each configuration is repeated with ten initialization and test-order seeds: 42, 123, 456, 789, 1337, 1618, 2021, 2718, 3141, and 9876.
 This results in 720 completed runs per dataset family, because each dataset combines three classifiers, two PCA settings, 12 sample-count settings, and ten seeds; across both dataset families, 1440 runs were completed.
@@ -269,7 +272,7 @@ Because TensorFlow training was not configured for bit-identical determinism, th
 
 The PCA configuration is a deliberate design choice rather than an incidental result.
 For the \texttt{pca95var} variants, the number of retained components is selected by cumulative explained variance, which is a standard PCA criterion for dimensionality selection~\cite{jolliffe2002pca}.
-The threshold is set to approximately 95\% as a conservative operating point rather than as a theoretically optimal constant.
+The threshold is set to approximately 95\%, following the widely used recommendation to retain enough principal components to preserve on the order of 95\% of the variance when reducing dimensionality~\cite[p.~223]{geron2019handson}, as a conservative operating point rather than as a theoretically optimal constant.
 This choice avoids an aggressive compression of the learned embedding, keeps most of the measured variance, and still creates a measurable reduction in classifier state and reference-store size.
 Its practical effect is not assumed from the threshold alone; it is evaluated explicitly by comparing every \texttt{pca95var} configuration with the corresponding no-PCA baseline in terms of accuracy, latency, energy, process memory, and classifier/reference-store footprint.
 With this target, the PCA fitted on the CIFAR-10 features selects 31 components and retains 95.14\% of the variance, and the PCA fitted on the Imagenette features selects 608 components and retains 95.02\% of the variance.
