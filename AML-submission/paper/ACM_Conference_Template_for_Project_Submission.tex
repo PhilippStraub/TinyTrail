@@ -1,51 +1,4 @@
-%%
-%% This is file `sample-sigconf-authordraft.tex',
-%% generated with the docstrip utility.
-%%
-%% The original source files were:
-%%
-%% samples.dtx  (with options: `all,proceedings,bibtex,authordraft')
-%%
-%% IMPORTANT NOTICE:
-%%
-%% For the copyright see the source file.
-%%
-%% Any modified versions of this file must be renamed
-%% with new filenames distinct from sample-sigconf-authordraft.tex.
-%%
-%% For distribution of the original source see the terms
-%% for copying and modification in the file samples.dtx.
-%%
-%% This generated file may be distributed as long as the
-%% original source files, as listed above, are part of the
-%% same distribution. (The sources need not necessarily be
-%% in the same archive or directory.)
-%%
-%%
-%% Commands for TeXCount
-%TC:macro \cite [option:text,text]
-%TC:macro \citep [option:text,text]
-%TC:macro \citet [option:text,text]
-%TC:envir table 0 1
-%TC:envir table* 0 1
-%TC:envir tabular [ignore] word
-%TC:envir displaymath 0 word
-%TC:envir math 0 word
-%TC:envir comment 0 0
-%%
-%% The first command in your LaTeX source must be the \documentclass
-%% command.
-%%
-%% For submission and review of your manuscript please change the
-%% command to \documentclass[manuscript, screen, review]{acmart}.
-%%
-%% When submitting camera ready or to TAPS, please change the command
-%% to \documentclass[sigconf]{acmart} or whichever template is required
-%% for your publication.
-%%
-%%
-% \documentclass[manuscript, screen, review]{acmart}
-\documentclass[sigconf,review]{acmart}
+\documentclass[sigconf,review,nonacm]{acmart}
 
 %% Figures live in the repository under server/benchmark/... and at the repo
 %% root (Framework-detailed.png). These search paths let \includegraphics find
@@ -55,85 +8,27 @@
   {../../server/benchmark/analysis/exports/cifar10/analysis_20260713_083731/figures/}%
   {../../server/benchmark/analysis/exports/imagenet/analysis_20260713_083731/figures/}%
 }
-%%
-%% \BibTeX command to typeset BibTeX logo in the docs
 \AtBeginDocument{%
   \providecommand\BibTeX{{%
     Bib\TeX}}}
 
-%% Rights management information.  This information is sent to you
-%% when you complete the rights form.  These commands have SAMPLE
-%% values in them; it is your responsibility as an author to replace
-%% the commands and values with those provided to you when you
-%% complete the rights form.
-\setcopyright{acmlicensed}
-\copyrightyear{2018}
-\acmYear{2018}
-\acmDOI{XXXXXXX.XXXXXXX}
-%% These commands are for a PROCEEDINGS abstract or paper.
-\acmConference[Conference acronym 'XX]{Make sure to enter the correct
-  conference title from your rights confirmation email}{June 03--05,
-  2018}{Woodstock, NY}
-%%
-%%  Uncomment \acmBooktitle if the title of the proceedings is different
-%%  from ``Proceedings of ...''!
-%%
-%%\acmBooktitle{Woodstock '18: ACM Symposium on Neural Gaze Detection,
-%%  June 03--05, 2018, Woodstock, NY}
-\acmISBN{978-1-4503-XXXX-X/2018/06}
+%% Course submission metadata. DOI and ISBN are intentionally omitted because
+%% this manuscript is not an ACM proceedings publication.
+\setcopyright{none}
+\copyrightyear{2026}
+\acmYear{2026}
+\acmConference[AML Project Submission]{Advanced Machine Learning Project Submission}{July 2026}{Reutlingen University, Germany}
 
 \settopmatter{printacmref=false, printccs=false}
 \renewcommand\footnotetextcopyrightpermission[1]{}
-
-
-%%
-%% Submission ID.
-%% Use this when submitting an article to a sponsored event. You'll
-%% receive a unique submission ID from the organizers
-%% of the event, and this ID should be used as the parameter to this command.
-%%\acmSubmissionID{123-A56-BU3}
-
-%%
-%% For managing citations, it is recommended to use bibliography
-%% files in BibTeX format.
-%%
-%% You can then either use BibTeX with the ACM-Reference-Format style,
-%% or BibLaTeX with the acmnumeric or acmauthoryear sytles, that include
-%% support for advanced citation of software artefact from the
-%% biblatex-software package, also separately available on CTAN.
-%%
-%% Look at the sample-*-biblatex.tex files for templates showcasing
-%% the biblatex styles.
-%%
-
-%%
-%% The majority of ACM publications use numbered citations and
-%% references.  The command \citestyle{authoryear} switches to the
-%% "author year" style.
-%%
-%% If you are preparing content for an event
-%% sponsored by ACM SIGGRAPH, you must use the "author year" style of
-%% citations and references.
-%% Uncommenting
-%% the next command will enable that style.
-%%\citestyle{acmauthoryear}
-
-
-%%
-%% end of the preamble, start of the body of the document source.
+\makeatletter
+\@ACM@balancefalse
+\makeatother
+\raggedbottom
 \begin{document}
 
-%%
-%% The "title" command has an optional parameter,
-%% allowing the author to define a "short title" to be used in page headers.
 \title{Analysis and Identification of the Sweet Spot for Distance-Based Methods in the TinyMLOps Framework}
 
-%%
-%% The "author" command and its associated commands are used to define
-%% the authors and their affiliations.
-%% Of note is the shared affiliation of the first two authors, and the
-%% "authornote" and "authornotemark" commands
-%% used to denote shared contribution to the research.
 \author{Patrick Heller}
 \author{Jonas M{\"u}ller}
 \author{Philip Leipold}
@@ -145,17 +40,8 @@
   \country{Germany}
 }
 
-%%
-%% By default, the full list of authors will be used in the page
-%% headers. Often, this list is too long, and will overlap
-%% other information printed in the page headers. This command allows
-%% the author to define a more concise list
-%% of authors' names for this purpose.
 \renewcommand{\shortauthors}{Heller et al.}
 
-%%
-%% The abstract is a short summary of the work to be presented in the
-%% article.
 \begin{abstract}
 On-device learning enables embedded systems to adapt to new data locally, but TinyML deployments must balance accuracy with strict constraints on memory, latency, and energy consumption.
 This work analyzes the inference pipeline of the TinyMLOps framework and evaluates distance-based classifiers as the groundwork for future on-device learning, investigating how classifier choice, reference-sample size, and Principal Component Analysis (PCA) affect the accuracy--efficiency trade-off.
@@ -169,23 +55,13 @@ PCA slightly improves CIFAR-10 accuracy, shows near-neutral energy behavior on I
 Beyond the concrete recommendation, the study demonstrates how the framework can be used to vary architecture components and re-benchmark them on new datasets, providing a reusable foundation that transfers quickly to new TinyML use cases.
 \end{abstract}
 
-%%
-%% The code below is generated by the tool at http://dl.acm.org/ccs.cfm.
-%% Please copy and paste the code instead of the example below.
-%%
 \ccsdesc[500]{Computer systems organization~Embedded systems}
 \ccsdesc[500]{Computing methodologies~Machine learning}
 \ccsdesc[300]{Hardware~Power and energy}
 \ccsdesc[300]{Software and its engineering~Software performance}
 
-%%
-%% Keywords. The author(s) should pick words that accurately describe
-%% the work being presented. Separate the keywords with commas.
 \keywords{TinyML, on-device learning, distance-based classification, KNN, PCA, energy measurement, embedded machine learning}
 
-%%
-%% This command processes the author and affiliation and title
-%% information and builds the first part of the formatted document.
 \maketitle
 
 \section{Introduction}
@@ -211,9 +87,9 @@ The benchmark pipeline, the shared feature-processor construction, and the resou
 This objective leads to the following research questions:
 
 \begin{description}
-  \item[RQ1 -- Algorithm Selection] \emph{How does the choice of classification algorithm affect the trade-off between accuracy and efficiency in the TinyMLOps framework?}
-  \item[RQ2 -- Reference Sample Sweet Spot] \emph{What is the sweet spot for the number of stored reference samples per class with regard to the trade-off between accuracy and efficiency?}
-  \item[RQ3 -- PCA Influence] \emph{How does the use of Principal Component Analysis affect the trade-off between accuracy and efficiency of the considered distance-based methods?}
+  \item[RQ1 -- Algorithm] \emph{How does the choice of classification algorithm affect the trade-off between accuracy and efficiency in the TinyMLOps framework?}
+  \item[RQ2 -- Samples] \emph{What is the sweet spot for the number of stored reference samples per class with regard to the trade-off between accuracy and efficiency?}
+  \item[RQ3 -- PCA] \emph{How does the use of Principal Component Analysis affect the trade-off between accuracy and efficiency of the considered distance-based methods?}
 \end{description}
 
 \subsection{Contribution}
@@ -277,7 +153,7 @@ All 1440 planned deployments of this study (see Section~\ref{sec:design}) comple
 \begin{figure}[t]
   \centering
   \includegraphics[width=\columnwidth]{Framework-detailed.png}
-  \caption{Birds-eye view of the TinyMLOps framework (from the project repository). The client runs the on-device \emph{Deployment} pipeline (Input Processor $\rightarrow$ Feature Extractor $\rightarrow$ PCA $\rightarrow$ distance-based classifier), drift detection, and metric transmission; the server performs analytical processing, retraining, and deployment packaging; a NATS JetStream middleware connects both sides.}
+  \caption{Bird's-eye view of the TinyMLOps framework as documented in the project repository. The client executes the on-device \emph{Deployment} pipeline (Input Processor $\rightarrow$ Feature Extractor $\rightarrow$ PCA $\rightarrow$ distance-based classifier), drift detection, and metric transmission. The server performs analytical processing, retraining, and deployment packaging, while a NATS JetStream middleware connects both sides.}
   \Description{Block diagram of the TinyMLOps framework showing the client deployment pipeline, drift detection, metric transmitter, the NATS JetStream middleware, and the server-side analytical data processor, retrainer, and deployment packager.}
   \label{fig:framework}
 \end{figure}
@@ -297,22 +173,31 @@ In both cases, the softmax classification head is only used during training of t
 The standardization and PCA parameters are stored together as a feature processor and applied on the device, so that the same transformation is used consistently during benchmarking and would also be used during a future on-device learning step.
 
 The framework can execute KNN, k-means-based classification, and nearest centroid classification by exchanging only the classifier component while keeping the feature extractor and feature processor fixed.
-KNN is considered because it makes the influence of different numbers of stored reference samples per class directly visible.
-K-means is considered because it can compress the reference representation into a smaller set of centroids and therefore provides an efficiency-oriented alternative.
-Nearest centroid classification serves as a compact prototype-based baseline with minimal stored reference information.
-Together, the three algorithms span the main design choices for a future on-device learning extension.
-KNN is the uncompressed reference-store baseline: it keeps labeled feature vectors and classifies by neighborhood comparison, so adding a new supervised sample can be represented as inserting another reference vector into the classifier state~\cite{cover1967nearest,disabato2020incremental}.
-This makes KNN the most direct method for studying the sample-size sweet spot, but it also exposes the cost of storing and searching many references.
-K-means represents an intermediate design point: instead of retaining all reference vectors, it summarizes groups of embeddings through a small number of centroids, following the standard k-means objective of minimizing distances to cluster centers~\cite{lloyd1982least,kanungo2002efficient}.
-It is therefore included to test whether a prototype-based compression of the reference store can preserve accuracy while reducing deployment footprint.
-Nearest Centroid is the most compact design point: it stores only one centroid per class and assigns a query to the nearest class centroid~\cite{calafiore2019sparse,manning2008introduction}.
-It is included as a lower-footprint baseline that reveals how much accuracy is lost, or retained, when each class is represented by a single prototype.
-The comparison of these methods provides the context for the research questions: the study investigates which algorithmic representation, sample size, and PCA setting enable the most favorable trade-off between accuracy and efficiency for on-device learning.
+These three methods were selected because they represent distinct points on the same reference-representation spectrum, ranging from exemplar-based storage to increasingly compressed prototype-based storage.
+This spectrum is directly aligned with the central TinyML trade-off considered in this work: retaining more reference information can improve classification quality, but it also increases the state that must be stored and searched on the device~\cite{disabato2020incremental,ravaglia2021tinyml}.
+Prototype and nearest-mean representations are also well established in few-shot and class-incremental learning, where compact class summaries or selected exemplars are used to support adaptation under memory constraints~\cite{snell2017prototypical,rebuffi2017icarl,mai2021supervised,diao2021generalized}.
+
+KNN is included as the uncompressed exemplar-based baseline.
+It keeps labeled feature vectors and classifies a query from the labels of nearby stored samples~\cite{cover1967nearest}.
+In an incremental on-device setting, this is the most direct update mechanism: a newly labeled observation can be inserted into the reference store without retraining the feature extractor or solving an optimization problem~\cite{disabato2020incremental}.
+For the present study, KNN therefore makes the effect of the number of stored reference samples especially transparent.
+At the same time, it exposes the upper-cost side of the design space, because both the reference-store footprint and the brute-force neighborhood search grow with the number of stored samples.
+
+K-means-based classification is included as an intermediate compression strategy.
+Instead of retaining every selected exemplar, it summarizes regions of the embedding space by a small number of centroids per class.
+This follows the standard k-means objective of choosing cluster centers that minimize within-cluster squared distances, typically optimized by Lloyd-style iterative refinement~\cite{lloyd1982least,kanungo2002efficient}; the broader clustering literature treats k-means as a canonical prototype-based summarization method~\cite{jain2010clustering}.
+In this benchmark, k-means therefore tests whether several prototypes per class can preserve much of the accuracy of exemplar storage while reducing the classifier state that must be deployed.
+
+Nearest Centroid is included as the most compact prototype-based baseline.
+It stores one centroid per class and assigns a query to the class with the nearest centroid~\cite{calafiore2019sparse,manning2008introduction}.
+This design has minimal classifier-state growth with respect to the reference sample count once the class centroid has been computed, and nearest-class-mean variants remain relevant in online class-incremental learning~\cite{mai2021supervised}.
+It therefore provides a lower-footprint reference point for evaluating how much accuracy is lost, or retained, when each class is represented by a single prototype.
+Together, KNN, k-means, and Nearest Centroid allow the study to separate the influence of algorithmic representation from the influence of sample count and PCA, which is the basis for the three research questions.
 
 \section{Research Design}
 \label{sec:design}
 This section describes the research design used to answer the research questions.
-Each experiment is executed through the TinyMLOps framework and varies one or more architectural parameters while keeping the remaining measurement setup constant.
+Each experiment runs through the TinyMLOps framework and varies one or more architectural parameters while keeping the remaining measurement setup constant.
 The design follows the three research questions directly: RQ1 varies the classifier, RQ2 varies the number of stored reference samples per class, and RQ3 compares the same configurations with and without PCA.
 To keep the description reproducible, the following subsections document what was trained and how (Section~\ref{sec:training}), what was measured and how (Sections~\ref{sec:scope}--\ref{sec:measurement}), and how the collected values were aggregated and analyzed (Section~\ref{sec:analysis}).
 
@@ -320,6 +205,8 @@ To keep the description reproducible, the following subsections document what wa
 \label{sec:scope}
 The benchmark evaluates three distance-based classifiers: KMeans, KNN, and Nearest Centroid~\cite{cover1967nearest,kanungo2002efficient,calafiore2019sparse}.
 For each classifier, two preprocessing variants are considered: \texttt{nopca}, which uses the full feature representation, and \texttt{pca95var}, which projects features to enough principal components to retain approximately 95\% of the variance.
+This variant follows the established PCA practice of selecting the retained dimensionality by a cumulative explained-variance criterion~\cite{jolliffe2002pca}.
+The 95\% threshold is used as a conservative, reproducible operating point: it preserves most of the measured feature-space variance while still reducing the deployed reference vectors, and its practical effect is evaluated directly against the corresponding \texttt{nopca} baseline.
 The number of stored reference samples per class is swept over 12 values: 2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, and 100.
 Each configuration is repeated with ten initialization and test-order seeds: 42, 123, 456, 789, 1337, 1618, 2021, 2718, 3141, and 9876.
 This results in 720 completed runs per dataset family, because each dataset combines three classifiers, two PCA settings, 12 sample-count settings, and ten seeds; across both dataset families, 1440 runs were completed.
@@ -337,24 +224,75 @@ The choice of CIFAR-10 and Imagenette follows common practice in the small-data 
 Its extracted feature representation has 1280 dimensions without PCA and 608 dimensions with \texttt{pca95var}, retaining 95.02\% of the variance.
 For both dataset families, the scenario-level feature processing and PCA preparation use the corresponding training split.
 The deployed distance-based classifier is then initialized from a sampled reference store whose size is controlled by the samples-per-class setting; benchmark test images are evaluated separately from this sampled reference store.
-Each run evaluates exactly 200 benchmark test images.
+
+The benchmark keeps the reference-store construction and the measured test set separate at the directory level.
+For CIFAR-10, the repository export script writes the official CIFAR-10 training batches to the dataset's \texttt{train} directory and the official test batch to its \texttt{test} directory.
+For Imagenette, the export uses the Imagenette training split as the training/reference directory and maps Imagenette's validation split to the benchmark \texttt{test} directory.
+Initial classifier states are built only from the corresponding \texttt{train} directory of the dataset family.
+For a given seed and class index, the initial-state script first sorts the available class images, then draws at most the configured number of samples per class without replacement using a class-specific generator seeded by the run seed plus the class index.
+The selected images are converted to feature vectors with the same TensorFlow Lite feature extractor and optional feature processor that are deployed on the device.
+KNN stores the selected feature vectors directly, whereas Nearest Centroid and KMeans fit their prototypes from exactly the same selected per-class reference set; the selected indices and per-class counts are persisted in the initial-state metadata.
+
+The benchmark test set for each deployment is rebuilt from the corresponding held-out \texttt{test} directory before packaging the scenario.
+The pipeline deletes and recreates the scenario's deployment image directory, iterates over the sorted class folders, shuffles each class with the same class-specific seed rule, and copies the first configured test images into the deployment package.
+With 20 test images per class and ten classes, each run therefore evaluates exactly 200 benchmark test images, balanced as 20 images per class.
+Because the same seed is used for both reference sampling and test-image selection, one run is reproducible end-to-end; because ten different seeds are used, the reported means aggregate over different reference stores and different class-balanced subsets of the held-out test split.
 
 \subsection{Model Training and Architecture Creation}
 \label{sec:training}
 The feature extractor and the feature processor are created once per dataset family and then reused unchanged across all three classifier scenarios of that dataset.
 In other words, KNN, KMeans, and Nearest Centroid for a given dataset share exactly the same feature extractor and the same PCA projection, so that differences between them are attributable to the classifier rather than to a different backbone.
 The backbones are trained with a fixed seed of 42 and a validation split of 0.2.
-The CIFAR-10 low-resolution MobileNet is trained from scratch on the CIFAR-10 training split, and the Imagenette backbone fine-tunes a pretrained MobileNetV2 (10 training epochs followed by 5 fine-tuning epochs).
+The CIFAR-10 low-resolution MobileNet is trained from scratch on the CIFAR-10 training split for 20 epochs, and the Imagenette backbone fine-tunes a pretrained MobileNetV2 (10 initial training epochs followed by 5 fine-tuning epochs).
 The backbones are then exported as INT8 TensorFlow Lite feature extractors and mirrored into the three classifier scenarios; INT8 quantization is known to retain accuracy well on standard image benchmarks~\cite{shabir2025compression,ravaglia2021tinyml}.
 The benchmark itself does not retrain the backbone: it trains the pipeline on the full training split once and only varies the initialization reference-sample size on the device.
 
+Table~\ref{tab:backbone-training-stats} summarizes the available backbone training statistics.
+For CIFAR-10, the final epoch of the 20-epoch low-resolution MobileNet training run reached 0.8211 training accuracy and 0.8113 validation accuracy.
+For Imagenette, a reproduced run with the same seed and configuration reached 0.9688 training accuracy and 0.9810 validation accuracy after fine-tuning; its best validation accuracy during the run was 0.9905 in the initial training phase.
+Because TensorFlow training was not configured for bit-identical determinism, the reproduced Imagenette values should be interpreted as representative of the backbone configuration rather than as exact measurements of the originally deployed TFLite artifact.
+
+\begin{table*}[t]
+  \caption{Backbone training statistics before exporting the feature extractors. CIFAR-10 reports the final epoch of the original 20-epoch low-resolution MobileNet run; Imagenette reports a reproduced run with the same seed and training configuration.}
+  \label{tab:backbone-training-stats}
+  \centering
+  \footnotesize
+  \begin{tabular}{@{}llllrrrr@{}}
+    \toprule
+    Dataset & Backbone & Input & Training setup & Train loss & Train acc. & Val. loss & Val. acc. \\
+    \midrule
+    CIFAR-10 & Low-res MobileNet & 32$\times$32 & 20 epochs, from scratch & 0.5142 & 0.8211 & 0.5497 & 0.8113 \\
+    Imagenette & MobileNetV2 & 224$\times$224 & 10 + 5 epochs, pretrained & 0.0919 & 0.9688 & 0.0679 & 0.9810 \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
 The PCA configuration is a deliberate design choice rather than an incidental result.
-For the \texttt{pca95var} variants, the target is set to retain approximately 95\% of the explained variance, a common heuristic for choosing the number of principal components that preserves most of the signal while discarding low-variance directions~\cite{jolliffe2002pca}.
+For the \texttt{pca95var} variants, the number of retained components is selected by cumulative explained variance, which is a standard PCA criterion for dimensionality selection~\cite{jolliffe2002pca}.
+The threshold is set to approximately 95\% as a conservative operating point rather than as a theoretically optimal constant.
+This choice avoids an aggressive compression of the learned embedding, keeps most of the measured variance, and still creates a measurable reduction in classifier state and reference-store size.
+Its practical effect is not assumed from the threshold alone; it is evaluated explicitly by comparing every \texttt{pca95var} configuration with the corresponding no-PCA baseline in terms of accuracy, latency, energy, process memory, and classifier/reference-store footprint.
 With this target, the PCA fitted on the CIFAR-10 features selects 31 components and retains 95.14\% of the variance, and the PCA fitted on the Imagenette features selects 608 components and retains 95.02\% of the variance.
 The feature processor (standardization mean and scale together with the PCA projection matrix) is stored as a single artifact and applied identically on the device.
+The reported classifier-state sizes in the result tables do not include this fixed feature-processor artifact; they measure only the active distance-based classifier and its stored reference vectors or prototypes.
+Table~\ref{tab:feature-processor-overhead} therefore reports the feature-processor overhead separately.
+The runtime artifact stores three \texttt{float32} arrays: the scaler mean, the inverse scaler standard deviation, and the PCA projection matrix.
+Consequently, its payload size is approximately $(2D + dD)\cdot4$ bytes for input dimension $D$ and PCA output dimension $d$, plus a small \texttt{npz} container overhead.
 
-The backbone training pipeline computes training and validation accuracy during fitting (Keras \texttt{metrics=["accuracy"]} with a held-out validation split), but these values are only printed to the training console and are not persisted in the repository.
-Therefore, the exact per-epoch training and validation accuracy of the feature extractors is not reported here; capturing and reporting these curves is listed as an open item for a follow-up training run (see the accompanying open-items document).
+\begin{table}[t]
+  \caption{Stored feature-processor overhead for the \texttt{pca95var} variants. The artifact contains the standardization parameters and PCA projection matrix and is separate from the classifier state reported in Tables~\ref{tab:sweet-spots-eff} and~\ref{tab:pca-effect}.}
+  \label{tab:feature-processor-overhead}
+  \centering
+  \footnotesize
+  \begin{tabular}{@{}lrrrr@{}}
+    \toprule
+    Dataset & Input dim. & PCA dim. & Array payload & NPZ file \\
+    \midrule
+    CIFAR-10 & 160 & 31 & 20.63~KB & 22.13~KB \\
+    Imagenette & 1280 & 608 & 3050.00~KB & 3052.06~KB \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 \subsection{Data Collection Procedures}
 \label{sec:measurement}
@@ -364,7 +302,8 @@ Each experiment corresponds to a bounded on-device measurement window that cover
 This window lasted about 49~s per run on CIFAR-10 and about 116~s on Imagenette (overall range roughly 49--124~s across the 1440 deployments), while the mean per-image inference latency was about 45~ms on CIFAR-10 and 356~ms on Imagenette, with the remaining per-image time spent on image loading and preprocessing.
 The window length is therefore set almost entirely by the shared feature extraction and preprocessing rather than by the lightweight distance-based classifier, so it barely varies across classifiers or sample-count settings but differs clearly between the two datasets.
 For each deployed configuration, the pipeline records classification accuracy, per-image latency, CPU usage, and resident-set-size (RSS) memory from the merged benchmark and resource logs written on the device.
-In addition, it records the analytical classifier state size and reference-store size, so that memory is represented both as observed process memory and as model-specific storage demand; these storage metrics are the deployment-footprint indicators that grow directly with the number of stored reference samples and with the feature dimensionality.
+In addition, it records the analytical classifier state size and reference-store size, so that memory is represented both as observed process memory and as model-specific storage demand.
+These storage metrics are the active classifier/reference-store indicators that grow directly with the number of stored reference samples and with the feature dimensionality; the fixed PCA feature-processor artifact is reported separately in Table~\ref{tab:feature-processor-overhead}.
 Gross power and energy are derived from the external supply metadata, while net power and net energy subtract a separately measured idle baseline of the device, so that the reported net values approximate the additional cost caused by the inference workload.
 All energy measurements were taken under single-threaded BLAS/OpenMP execution, so that multi-threaded PCA projection could not distort the energy comparison across configurations. For CIFAR-10, the small 31-dimensional PCA projection never engaged OpenBLAS multi-threading, so those runs were single-threaded regardless. For Imagenette, the larger 608-dimensional projection did: an earlier, non-pinned run showed an inflated PCA energy figure that was traced to OpenBLAS multi-threading and corrected by explicitly pinning BLAS/OpenMP to one thread and re-running the experiments.
 
@@ -373,7 +312,7 @@ All energy measurements were taken under single-threaded BLAS/OpenMP execution, 
 For every configuration, the ten seeds are summarized by their mean; the reported mean accuracy and mean resource metrics are therefore averages over the ten seeds.
 Dispersion across seeds is reported as the standard deviation and as the 95\% confidence interval (CI) of the mean.
 Unless stated otherwise, the reported ``95\% CI'' value is the half-width of the 95\% confidence interval of the seed mean, computed with the t-distribution and $n-1$ degrees of freedom; a reported value of, for example, 0.0152 therefore means the seed mean lies within $\pm$0.0152 with 95\% confidence.
-The dependent variables capture the resulting accuracy--efficiency trade-off: classification accuracy, latency, CPU usage, RSS memory, analytical model/storage size, net average power, and net energy per image.
+The dependent variables capture the resulting accuracy--efficiency trade-off: classification accuracy, latency, CPU usage, RSS memory, analytical classifier/reference-store size, fixed feature-processor overhead, net average power, and net energy per image.
 
 For RQ1, configurations are compared by the best observed mean accuracy per classifier and PCA setting together with their resource behavior.
 For RQ2, the sweet spot is operationalized as the first sample-count setting that reaches at least 95\% (or 99\%) of the maximum observed mean accuracy of the same dataset, classifier, and PCA configuration; the corresponding accuracy and efficiency metrics at that knee are reported alongside the sample count.
@@ -382,32 +321,49 @@ Paired Wilcoxon signed-rank tests are computed in the analysis exports for the P
 
 \section{Results}
 \label{sec:results}
-The results are based on the most recent export folders available for both benchmark families: \texttt{analysis\_20260705\_193251} for CIFAR-10 and \texttt{analysis\_20260708\_140042} for Imagenette (the thread-pinned re-run).
-Figure~\ref{fig:cifar10-summary-grid} provides the CIFAR-10 benchmark overview and Figure~\ref{fig:imagenet-summary-grid} the Imagenette benchmark overview, while Figure~\ref{fig:imagenet-energy-samples} focuses on the corrected Imagenette energy behavior.
+The results are based on the most recent export folders available for both benchmark families: \texttt{analysis\_20260713\_083731} for CIFAR-10 and \texttt{analysis\_20260713\_083731} for Imagenette (the thread-pinned re-run).
+Figure~\ref{fig:cifar10-summary-grid} provides the CIFAR-10 benchmark overview and Figure~\ref{fig:imagenet-summary-grid} the Imagenette benchmark overview.
+Figure~\ref{fig:cifar10-energy-samples} and Figure~\ref{fig:imagenet-energy-samples} show the dataset-specific energy behavior, and Figure~\ref{fig:imagenet-ram-usage} visualizes the strongest observed reference-store effect in process memory.
 The following subsections answer the research questions in detail.
 
 \begin{figure*}[t]
   \centering
   \includegraphics[width=\textwidth]{cifar10_summary_grid.png}
-  \caption{CIFAR-10 benchmark summary.}
-  \Description{Benchmark summary grid showing CIFAR-10 accuracy and resource measurements across classifiers, PCA settings, and reference sample counts.}
+  \caption{CIFAR-10 benchmark overview across the reference-sample sweep. The panels report mean accuracy, net energy per image, net average power, mean process RSS, latency, and CPU utilization for each classifier/PCA combination; shaded bands denote 95\% confidence intervals across the ten seeds. Accuracy saturates early, whereas KNN without PCA shows the strongest increase in memory, latency, and energy as the reference store grows.}
+  \Description{Six-panel CIFAR-10 benchmark summary showing accuracy, net energy per image, net average power, mean process RSS, latency, and CPU utilization across reference-sample counts for KMeans, KNN, and Nearest Centroid with and without PCA.}
   \label{fig:cifar10-summary-grid}
 \end{figure*}
 
 \begin{figure*}[t]
   \centering
   \includegraphics[width=\textwidth]{imagenet_summary_grid.png}
-  \caption{Imagenette benchmark summary.}
-  \Description{Benchmark summary grid showing Imagenette accuracy and resource measurements across classifiers, PCA settings, and reference sample counts.}
+  \caption{Imagenette benchmark overview across the reference-sample sweep. The panels report mean accuracy, net energy per image, net average power, mean process RSS, latency, and CPU utilization for each classifier/PCA combination; shaded bands denote 95\% confidence intervals across the ten seeds. KNN reaches the highest accuracy but also exhibits the clearest sample-count-dependent increase in process memory and latency, while the prototype-based classifiers remain nearly flat in these resource metrics.}
+  \Description{Six-panel Imagenette benchmark summary showing accuracy, net energy per image, net average power, mean process RSS, latency, and CPU utilization across reference-sample counts for KMeans, KNN, and Nearest Centroid with and without PCA.}
   \label{fig:imagenet-summary-grid}
 \end{figure*}
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=\textwidth]{imagenet_energy_vs_samples.png}
-  \caption{Imagenette net energy per image across reference-sample counts for the corrected export.}
-  \Description{Line plots for KMeans, KNN, and Nearest Centroid showing no-PCA and pca95var net energy per image across reference-sample counts. The PCA and no-PCA curves remain close instead of showing a systematic PCA energy penalty.}
+  \includegraphics[width=\textwidth]{cifar10_energy_vs_samples.png}
+  \caption{CIFAR-10 net energy per image by classifier and reference-sample count. Lines show seed means and shaded bands show 95\% confidence intervals. KMeans remains comparatively stable across the sweep, KNN energy increases with larger reference stores, and Nearest Centroid with \texttt{pca95var} is consistently above its no-PCA counterpart despite the smaller classifier state.}
+  \Description{Three CIFAR-10 line plots comparing no-PCA and pca95var net energy per image across reference-sample counts for KMeans, KNN, and Nearest Centroid.}
+  \label{fig:cifar10-energy-samples}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.94\textwidth]{imagenet_energy_vs_samples.png}
+  \caption{Imagenette net energy per image by classifier and reference-sample count in the thread-pinned export. Lines show seed means and shaded bands show 95\% confidence intervals. KMeans shows small PCA--no-PCA differences, KNN tends to consume less energy with \texttt{pca95var} at larger reference stores, and Nearest Centroid shows a small PCA-related increase for most sample counts.}
+  \Description{Three Imagenette line plots comparing no-PCA and pca95var net energy per image across reference-sample counts for KMeans, KNN, and Nearest Centroid after the thread-pinned re-run.}
   \label{fig:imagenet-energy-samples}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.94\textwidth]{imagenet_actual_ram_usage.png}
+  \caption{Observed Imagenette process memory from the benchmark logs. The panels show mean and peak process RSS across the reference-sample sweep. Memory growth is concentrated in KNN because its reference store grows with the number of stored exemplars; \texttt{pca95var} reduces this slope, while KMeans and Nearest Centroid remain nearly constant.}
+  \Description{Two Imagenette line plots showing mean and peak process RSS across reference-sample counts for KMeans, KNN, and Nearest Centroid with and without PCA. KNN without PCA grows most strongly, KNN with PCA grows more slowly, and the prototype-based classifiers remain nearly flat.}
+  \label{fig:imagenet-ram-usage}
 \end{figure*}
 
 \subsection{RQ1: Algorithm Selection}
@@ -462,8 +418,8 @@ Nearest Centroid reaches the 95\% knee at 10 samples per class in both PCA setti
 For Imagenette at the 95\% threshold, KMeans and KNN reach the knee at 10 samples per class in both PCA settings, and Nearest Centroid reaches it already at 5 samples per class with and without PCA (0.9580 without PCA, 0.9560 with PCA).
 At the stricter 99\% threshold, CIFAR-10 knees range from 40 to 100 samples per class, while Imagenette knees range from 10 to 80 samples per class.
 
-Because RQ2 concerns the accuracy--efficiency trade-off and not only the sample count, Table~\ref{tab:sweet-spots-eff} additionally reports the efficiency metrics measured at the 95\% knee: net energy per image, latency, RSS memory, and the classifier state size.
-The classifier state size at the knee makes the deployment footprint explicit and already previews the PCA effect analyzed in RQ3: at the same knee, the \texttt{pca95var} state is consistently smaller than the \texttt{nopca} state (for example, Imagenette KNN drops from 500~KB to 237.5~KB, and CIFAR-10 Nearest Centroid from 6.25~KB to 1.21~KB), while energy and latency remain close.
+Because RQ2 concerns the accuracy--efficiency trade-off and not only the sample count, Table~\ref{tab:sweet-spots-eff} additionally reports the efficiency metrics measured at the 95\% knee: net energy per image, latency, RSS memory, and the active classifier state size.
+The classifier state size at the knee makes the reference-store footprint explicit and already previews the PCA effect analyzed in RQ3: at the same knee, the \texttt{pca95var} state is consistently smaller than the \texttt{nopca} state (for example, Imagenette KNN drops from 500~KB to 237.5~KB, and CIFAR-10 Nearest Centroid from 6.25~KB to 1.21~KB), while energy and latency remain close.
 
 \begin{table*}[t]
   \caption{Reference-sample knees at 95\% and 99\% of the maximum observed mean accuracy, with the mean accuracy actually reached at each knee.}
@@ -491,7 +447,7 @@ The classifier state size at the knee makes the deployment footprint explicit an
 \end{table*}
 
 \begin{table*}[t]
-  \caption{Efficiency metrics measured at the 95\% accuracy knee of Table~\ref{tab:sweet-spots}. State size is the analytical classifier state at the knee sample count.}
+  \caption{Efficiency metrics measured at the 95\% accuracy knee of Table~\ref{tab:sweet-spots}. State size is the analytical active classifier/reference-store state at the knee sample count and excludes the fixed feature-processor artifact listed in Table~\ref{tab:feature-processor-overhead}.}
   \label{tab:sweet-spots-eff}
   \centering
   \footnotesize
@@ -549,19 +505,30 @@ For CIFAR-10, PCA increases mean accuracy by 0.0088 for KMeans, 0.0060 for KNN, 
 For Imagenette, the paired mean accuracy differences are small: +0.0017 for KMeans, $-$0.0020 for KNN, and +0.0014 for Nearest Centroid.
 
 \paragraph{Energy and power.}
-The CIFAR-10 net-energy difference is +0.0009~J per image for KMeans, $-$0.0007~J per image for KNN, and +0.0042~J per image for Nearest Centroid.
+For CIFAR-10, the net-energy differences are +0.0009~J per image for KMeans, $-$0.0007~J for KNN, and +0.0042~J for Nearest Centroid.
 For Imagenette, the paired mean net-energy differences are $-$0.0034~J per image for KMeans, $-$0.0084~J per image for KNN, and +0.0060~J per image for Nearest Centroid; the corresponding net power values remain within a narrow band around 0.50--0.52~W (Table~\ref{tab:resource-summary}), so PCA does not impose a systematic energy penalty on Imagenette.
+The dataset-specific energy curves in Figures~\ref{fig:cifar10-energy-samples} and~\ref{fig:imagenet-energy-samples} show the same pattern visually: CIFAR-10 mainly highlights the higher Nearest Centroid energy with PCA, whereas Imagenette shows no systematic PCA energy inflation after the thread-pinned re-run.
 
 \paragraph{Storage footprint and dimensionality.}
-The most consistent PCA effect is on the deployment footprint.
+The most consistent PCA effect is on the active classifier/reference-store footprint.
 Because \texttt{pca95var} reduces the feature dimension from 160 to 31 on CIFAR-10 (about 5.2$\times$) and from 1280 to 608 on Imagenette (about 2.1$\times$), the PCA-projected reference vectors are correspondingly smaller, which reduces the classifier state and reference-store size in roughly the same proportion.
 At the 95\% knee (Table~\ref{tab:sweet-spots-eff}), the classifier state shrinks from 18.75~KB to 3.63~KB (CIFAR-10 KMeans), from 6.25~KB to 1.21~KB (CIFAR-10 Nearest Centroid), from 500~KB to 237.5~KB (Imagenette KNN), and from 50~KB to 23.75~KB (Imagenette Nearest Centroid).
-This footprint reduction is the main practical benefit of PCA on Imagenette, where accuracy is essentially unchanged.
+However, the PCA variants also require the fixed feature-processor artifact shown in Table~\ref{tab:feature-processor-overhead}.
+This overhead is small for CIFAR-10 (22.13~KB), but substantial for Imagenette (3052.06~KB) because the PCA matrix has shape $608\times1280$.
+Consequently, PCA reduces the growth rate of the reference store and can still be attractive for large KNN stores or future on-device sample accumulation, but the total deployed state is not necessarily smaller at the low sample-count knees once the fixed Imagenette processor is included.
+For Imagenette, PCA should therefore be interpreted primarily as a way to bound reference-store growth rather than as an immediate total-package-size reduction at 5--10 samples per class.
 
 \paragraph{Latency, CPU, and process memory.}
 The effect of PCA on latency and CPU usage is small.
 On CIFAR-10, mean latency stays near 44--45~ms and CPU near 5\% in all settings; on Imagenette, mean latency is around 345--367~ms and CPU near 22\% in all settings, with PCA differences of only a few percent (Table~\ref{tab:resource-summary}).
 Observed RSS memory also changes only marginally, and for Imagenette KNN it is even lower with PCA (75.2~MB) than without (79.4~MB), consistent with the smaller reference store.
+Figure~\ref{fig:imagenet-ram-usage} makes this reference-store effect visible across the sample-count sweep: KNN process memory grows with the number of stored exemplars, while PCA reduces the slope and the prototype-based classifiers remain nearly flat.
+
+\paragraph{Trade-off interpretation.}
+PCA should therefore not be interpreted as a general latency, energy, or total-package-size optimization in this benchmark.
+Its main benefit is the reduction of the stored feature representation, whereas the fixed projection matrix adds feature-processor state, the additional projection step can offset part of the computational benefit during inference, and the feature extractor still dominates latency and energy.
+On CIFAR-10, the small but consistent accuracy gain and the approximately 5.2$\times$ smaller classifier state make \texttt{pca95var} attractive for most configurations; the main exception is a strictly energy-constrained Nearest Centroid deployment, where the observed +0.0042~J per image should be weighed against the smaller state.
+On Imagenette, PCA is primarily a reference-store growth optimization: accuracy and energy remain essentially unchanged, but the 2.1$\times$ dimensionality reduction substantially reduces each stored reference vector, especially for KNN and larger sample counts, while adding a fixed 3.05~MB processor artifact.
 
 \begin{table*}[t]
   \caption{Paired PCA effect by dataset, classifier, and metric. Delta is \texttt{pca95var} minus \texttt{nopca}.}
@@ -611,13 +578,27 @@ As Table~\ref{tab:sweet-spots-eff} shows, the 10-samples-per-class operating poi
 The goal of RQ3 was to evaluate whether PCA improves the accuracy--efficiency trade-off for the evaluated distance-based classifiers.
 On CIFAR-10, \texttt{pca95var} improves mean accuracy for all three classifiers by 0.0060 to 0.0088, with only small energy changes for KMeans and KNN but a larger energy increase for Nearest Centroid.
 On Imagenette, PCA changes mean accuracy only marginally, ranging from $-$0.0020 for KNN to +0.0017 for KMeans, while paired net-energy differences remain close to zero between $-$0.0084 and +0.0060~J per image.
-Independently of the dataset, PCA reduces the feature dimensionality and therefore the classifier state and reference-store footprint in proportion to the dimension reduction.
-Therefore, PCA is useful for CIFAR-10 when a small accuracy gain is desired, and it is attractive on Imagenette primarily as a low-cost way to reduce the deployment footprint at essentially unchanged accuracy and energy.
+Independently of the dataset, PCA reduces the feature dimensionality and therefore the active classifier state and reference-store footprint in proportion to the dimension reduction, but it also adds a fixed feature-processor artifact.
+Therefore, PCA is useful for CIFAR-10 when a small accuracy gain is desired, and it is attractive on Imagenette primarily when bounding reference-store growth matters at essentially unchanged accuracy and energy.
+
+\subsection{Practical Configuration Recommendation}
+The results suggest a compact, PCA-enabled prototype classifier as the default starting point for embedded deployments, with deviations only when a specific deployment objective justifies them.
+For CIFAR-10, Nearest Centroid with \texttt{pca95var} is the strongest default because it reaches the highest observed mean accuracy (0.8095 at 100 samples per class), already exceeds the 95\% knee at 10 samples per class with 0.7870 accuracy, and keeps the classifier state at only 1.21~KB at this operating point.
+This configuration is therefore recommended when the target system needs a small, simple model with competitive accuracy.
+If energy is the dominant constraint and the additional PCA-related Nearest Centroid energy observed on CIFAR-10 is unacceptable, the corresponding no-PCA Nearest Centroid variant is a reasonable fallback because it preserves the same compact classifier structure while avoiding the PCA projection.
+
+For Imagenette, the recommendation depends more strongly on whether the priority is maximum accuracy or compactness.
+If the deployment can tolerate a larger reference store, KNN is the accuracy-oriented choice, with \texttt{pca95var} reaching the highest observed mean accuracy of 0.9835 and the no-PCA variant remaining very close at 0.9830.
+If the active classifier state and operational simplicity are more important, Nearest Centroid with \texttt{pca95var} is a compact classifier default: it reaches its 95\% knee already at 5 samples per class, reduces the active classifier state at the 95\% knee from 50~KB to 23.75~KB, and still reaches a maximum mean accuracy of 0.9820.
+For very small Imagenette reference stores, however, this active-state reduction must be weighed against the fixed 3.05~MB PCA feature-processor artifact.
+Across both datasets, 10 samples per class are a defensible low-cost starting point, while 40 to 60 samples per class should be selected when the target is near-maximum accuracy; stricter 99\% operating points can require up to 100 samples per class on CIFAR-10 and up to 80 on Imagenette.
+Overall, PCA should be enabled by default when CIFAR-10 accuracy, classifier-state size, or future reference-store growth matters, but it should not be selected with the expectation of substantial latency, energy, or total-package-size reductions.
 
 \subsection{Improvement Potentials}
 The first improvement potential concerns the deployment footprint and the PCA implementation for high-dimensional Imagenette features.
 As shown in RQ3, the storage footprint is a first-class efficiency dimension in this study, and PCA reduces the Imagenette feature dimensionality from 1280 to 608 with only small measured energy changes in the corrected measurements.
-Future work should still profile the PCA transformation separately from the classifier step and evaluate whether precomputed or quantized projection matrices further improve the deployment footprint and inference efficiency.
+At the same time, the current \texttt{float32} PCA feature processor adds a fixed 3.05~MB artifact for Imagenette.
+Future work should therefore profile the PCA transformation separately from the classifier step and evaluate whether precomputed, quantized, sparse, or low-rank projection matrices can reduce the processor footprint and inference cost.
 
 The second improvement potential is the selection of benchmark operating points.
 The current sweep covers a broad range from 2 to 100 samples per class, but the observed knees indicate that the most informative region lies between 5 and 60 samples per class for most configurations.
@@ -640,10 +621,12 @@ The study reduces the remaining risk by aggregating results across seeds and by 
 Another internal threat is that PCA is measured as part of the deployed inference pipeline; therefore, the reported PCA effect includes both dimensionality reduction and classification effects rather than isolating the classifier alone.
 
 \paragraph{Construct validity.}
-Construct validity concerns whether the collected metrics adequately represent the intended accuracy--efficiency trade-off.
-Accuracy, latency, CPU usage, RSS memory, analytical classifier state size, reference-store size, and net energy per image cover the main deployment-relevant dimensions, but they do not capture all aspects of an embedded system.
+Construct validity concerns whether the collected metrics capture the intended accuracy--efficiency trade-off.
+Accuracy, latency, CPU usage, RSS memory, analytical classifier state size, reference-store size, feature-processor overhead, and net energy per image cover the main deployment-relevant dimensions, but they do not capture all aspects of an embedded system.
 For example, flash usage, long-term battery behavior, thermal throttling over extended operation, and retraining cost after deployment are not represented as separate optimization targets.
-In addition, the training and validation accuracy of the feature extractors is not reported because it was not persisted during backbone training; the study therefore evaluates the deployed pipeline rather than the intrinsic quality of the backbones.
+The backbone training statistics in Table~\ref{tab:backbone-training-stats} provide context for the feature extractors, but they are not the primary evaluation target of this study.
+For CIFAR-10, only the final epoch statistics are available, and for Imagenette the reported values come from a reproduced run with the same seed and configuration rather than from a bit-identical replay of the originally deployed artifact.
+The study therefore primarily evaluates the deployed distance-based inference pipeline rather than making claims about the intrinsic optimum quality of the backbones.
 The chosen 95\% and 99\% accuracy knees provide clear operational definitions of a sweet spot, but different applications may define an acceptable accuracy loss differently.
 
 \paragraph{Conclusion validity.}
@@ -668,10 +651,11 @@ The evaluation considered prediction accuracy together with resource-related mea
 The results show that a small number of reference samples is sufficient to reach most of the attainable accuracy.
 At the 95\% accuracy threshold, most configurations reach their knee at 10 samples per class, with CIFAR-10 KNN without PCA requiring 20 samples per class and Imagenette Nearest Centroid reaching the knee already at 5 samples per class.
 Nearest Centroid provides a strong compact configuration on CIFAR-10, while KNN achieves the highest observed Imagenette accuracy.
-PCA improves CIFAR-10 accuracy slightly and is attractive on Imagenette mainly because it reduces the deployment footprint at essentially unchanged accuracy and energy.
+PCA improves CIFAR-10 accuracy slightly and is attractive on Imagenette mainly because it reduces reference-store growth at essentially unchanged accuracy and energy, although the fixed PCA processor must be considered for total package size.
+As a practical default, the results support \texttt{pca95var} with Nearest Centroid for compact deployments and KNN for accuracy-oriented Imagenette deployments when the larger reference store is acceptable.
 Beyond these concrete findings, the study demonstrates a reusable way to vary architecture components and re-benchmark them on new datasets under identical conditions, which is the intended foundation for future on-device learning use cases.
 
-Future work should continue to profile the PCA projection separately, especially for high-dimensional Imagenette features, and should persist and report backbone training/validation accuracy.
+Future work should continue to profile the PCA projection separately, especially for high-dimensional Imagenette features, and should persist complete per-epoch backbone training histories together with the exported feature-extractor artifacts.
 The benchmark should also use denser sample-count sweeps around the observed knees and integrate deployment constraints such as maximum energy, memory, or latency into the configuration-selection process.
 Finally, the results should be validated on additional datasets, different class counts, and further embedded hardware platforms before generalizing the recommended sweet spots to broader TinyML use cases.
 
@@ -680,18 +664,8 @@ During the preparation of this work, the authors used Anthropic's Claude (via th
 The authors designed the study, formulated the research questions, configured and executed all deployments on the Raspberry Pi Zero~2W, collected and validated the resource and energy measurements, and interpreted the results.
 After using this tool, the authors reviewed and edited the content as needed and take full responsibility for the submission's content.
 
-%%
-%% The next two lines define the bibliography style to be used, and
-%% the bibliography file.
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{references}
 
-
-%%
-%% If your work has an appendix, this is the place to put it.
-
-
 \end{document}
 \endinput
-%%
-%% End of file `sample-sigconf-authordraft.tex'.
