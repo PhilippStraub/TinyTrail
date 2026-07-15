@@ -127,7 +127,8 @@ E = ∫ P dt   ≈   Σ (P_i + P_{i+1})/2 · (t_{i+1} − t_i)     [trapezoidal]
 - **Inference window.** The integral is sliced to the Pi's actual inference period (the
   `[min,max]` of `resource_usage_*.csv:timestamp_unix`), so boot/deploy time is excluded. If
   that window is unavailable (clock-sync gap) the code falls back to the full trace and records
-  a `note`.
+  a `note`. The window spans two clocks — the trace is timestamped by the PC, the window by the
+  Pi — which is verified rather than assumed; see **§10**.
 - **per image** = `energy_J / n_images`. Normalizes runs of different duration / image count
   into a fair **cost of one inference**.
 - **net** = baseline-subtracted. The Pi draws power just being **on** (idle ≈ 0.61 W of the
@@ -215,3 +216,97 @@ The final export sets used for the write-up are:
 python analyze_benchmark.py
 # or interactively, run the dataset notebooks top-to-bottom (re-crawls results/ live)
 ```
+
+---
+
+## 10. Measurement validity — how the inference window is verified
+
+Every energy number in §5 rests on one assumption: that the **PC clock** (which timestamps the
+power trace) and the **Pi clock** (which delimits the inference window) agree. The DSP-3005 has
+no clock of its own — it only returns V/I — so the power trace lives entirely on the PC clock,
+while `[t0, t1]` comes entirely from the Pi. Nothing in the pipeline synchronizes the two; both
+hosts simply run their OS default NTP.
+
+That assumption is **not** taken on trust. Two scripts verify it after the fact, from the
+archived files alone, and neither needs NTP to be believed. Both are pure stdlib and safe to
+re-run at any time.
+
+### 10.1 `verify_power_coverage.py` — does the trace cover the window?
+
+```bash
+python analysis/verify_power_coverage.py                 # audits ../results
+python analysis/verify_power_coverage.py --csv-out audit.csv
+# exit 0 = no FAIL, 1 = at least one FAIL, 2 = nothing found
+```
+
+Per experiment it checks trace **margins**, sampling **gaps** and monotonicity (an NTP step
+mid-run would show up here), **run_id** consistency, a ±2 s window-shift **sensitivity**, and —
+the important one — **causal containment**: the Pi cannot start computing before the PC sent the
+deployment, and cannot still be running after the PC received the result. Both events are timed
+on the PC clock alone, which yields
+
+```
+t1 − result_received_at  ≤  δ  ≤  t0 − started_at
+```
+
+an NTP-free bound on the clock offset δ. An empty interval, or one excluding 0, proves an
+inconsistency. Writes `../results/analysis/power_coverage_audit.csv` (one row per run).
+
+**Result over the campaign:** all 1437 analysed runs bound δ consistently with zero; traces
+cover their windows with margin; no clock steps (largest Pi gap 0.73 s against 0.2 s nominal).
+
+> The script also prints a cross-correlation offset estimate (`xcorr_offset_s`). **Do not quote
+> it.** CPU load is saturated and therefore featureless during inference, so the estimator is
+> noise here: median peak r ≈ 0.40, σ ≈ 9 s. Use §10.2 instead.
+
+### 10.2 `verify_window_alignment.py` — does the power actually change at the window edge?
+
+```bash
+python analysis/verify_window_alignment.py
+python analysis/verify_window_alignment.py --bin 0.2 --csv-out align.csv
+```
+
+The causal bound above is airtight but loose, because it is padded by the deploy and transfer
+durations. This script measures the offset **directly** instead, using the one feature that is
+not featureless: the power **edge**. The Pi loads the TFLite model and reference store before
+inference — a burst drawing ~2.1 W, clearly more than inference itself (~0.79 W) — and drops to
+idle (~0.65 W) once the result has been transmitted.
+
+A single run is too noisy to locate that edge. Stacking every run of a dataset family on its own
+`t0` (superposed-epoch averaging) removes the noise, and the ensemble mean resolves the edge to
+the 0.2 s sampling period. If the clocks agreed, the transition sits on `t0`; an offset δ would
+displace it by δ.
+
+**Result:** across 711 CIFAR-10 runs the falling edge crosses the midpoint at **t0 − 0.63 s** —
+so |δ| ≤ 0.63 s, and a multi-second offset is excluded by the measurement itself. The small
+lead is expected physically: model loading finishes, *then* the resource logger starts.
+
+### 10.3 What this means for the numbers
+
+- **Relative comparisons** (PCA vs no-PCA, classifier vs classifier, sample-count sweep) are
+  immune regardless: a constant offset is a common-mode error and cancels.
+- **Absolute values** (`net_energy_per_image_J`, `net_avg_power_W`) are the only ones exposed,
+  and only to a sub-second residual. Note that `net` subtracts the idle baseline (§5), so it is
+  ~23 % (CIFAR-10) / ~45 % (Imagenette) of gross energy — a given absolute deviation is
+  correspondingly larger in relative terms.
+- The ±2 s sensitivity printed by §10.1 is a **what-if**, not an error bar. It is a boundary
+  effect scaling as 1/T, so it tracks **window length** (CIFAR-10 ~49 s vs Imagenette ~116 s),
+  **not** sample count — window length is set by the fixed 200 test images.
+- **Accuracy, latency, CPU and RSS are untouched** by all of this: latency is measured on the Pi
+  with a single clock, and the others need no time base at all.
+
+### 10.4 Excluded runs
+
+`verify_power_coverage.py` flagged three runs as FAIL. Each received a **byte-identical
+duplicate of the preceding experiment's result** (same `run_id`), so its accuracy and latency
+belong to the wrong seed. This is a result-attribution fault, *not* a clock problem — provable
+on the PC clock alone, since the whole deploy→result cycle took 4.3–4.9 s while the returned
+resource log describes a 49–114 s inference.
+
+They are excluded from every aggregate via `EXCLUDED_EXPERIMENTS` in `analyze_benchmark.py`,
+which filters in `_discover_experiment_dirs()` and therefore propagates to the notebooks and
+`make_findings_figures.py` alike. The three affected cells keep 9 of 10 seeds; the fault did not
+propagate (the next run is intact), and all reported knees are unchanged.
+
+German deep-dive with the full audit numbers:
+[`../MESSMETHODIK_ZEITSYNCHRONISATION.md`](../MESSMETHODIK_ZEITSYNCHRONISATION.md), section 5.1.

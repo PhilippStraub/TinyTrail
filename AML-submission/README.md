@@ -63,7 +63,33 @@ All under [`../server/benchmark/`](../server/benchmark/):
 | [`benchmark_config.json`](../server/benchmark/benchmark_config.json) | Sweep definition (sample sizes, PCA configs, timeouts, device id) |
 | [`dsp3005_reader.py`](../server/benchmark/dsp3005_reader.py) | Reads the Voltcraft DSP-3005 bench supply over serial to record the power trace |
 | [`config_template.json`](../server/benchmark/config_template.json) | Frozen base Pi configuration, patched per experiment |
+| [`analysis/verify_power_coverage.py`](../server/benchmark/analysis/verify_power_coverage.py) | **Validity check** — audits every run: does the power trace fully cover its inference window, are the two clocks causally consistent, are there sampling gaps? Writes one row per run |
+| [`analysis/verify_window_alignment.py`](../server/benchmark/analysis/verify_window_alignment.py) | **Validity check** — measures the residual clock offset directly from the power edge, by averaging all runs of a dataset family on their own window start |
 | [`README.md`](../server/benchmark/README.md) | How to run the sweep |
+
+### Why these measurements are trustworthy (measurement validity)
+
+Energy is measured *outside* the device: the Voltcraft meter has no clock of its own, so the
+power trace is timestamped by the **benchmark PC**, while the inference window that the energy
+is integrated over comes from the log written on the **Raspberry Pi**. Two clocks, and no
+explicit synchronization step in the pipeline. Rather than assume they agree, the two scripts
+above verify it after the fact, from the archived files only — neither needs NTP to be trusted.
+
+| Question | Where it is answered |
+|---|---|
+| **What is the threat, and what does it mean for the results?** | Report, Section 5.4 *Threat to Validity* → [`paper/`](paper/) |
+| **How is it checked, how do I re-run it, what came out?** | [`../server/benchmark/analysis/README.md`](../server/benchmark/analysis/README.md) **§10** |
+| **Full audit numbers and the error model (German)** | [`../server/benchmark/MESSMETHODIK_ZEITSYNCHRONISATION.md`](../server/benchmark/MESSMETHODIK_ZEITSYNCHRONISATION.md) |
+| **Raw evidence, one row per run** | [`../server/benchmark/results/analysis/power_coverage_audit.csv`](../server/benchmark/results/analysis/power_coverage_audit.csv) and [`window_alignment.csv`](../server/benchmark/results/analysis/window_alignment.csv) |
+
+Both CSVs are committed, so the checks are reproducible from this repository alone — `results/`
+is otherwise excluded from version control because it holds the 1440 raw experiment folders.
+
+Three of the 1440 runs are excluded from every aggregate because each received a duplicate of
+the preceding experiment's result, which put the wrong seed's accuracy and latency in the row.
+The exclusion is explicit in [`EXCLUDED_EXPERIMENTS`](../server/benchmark/analysis/analyze_benchmark.py)
+and applies to the notebooks and figures alike; the affected configurations use 9 of 10 seeds
+and the reported knees are unchanged. Details in §10.4 of the analysis README.
 
 Raw per-experiment measurement output (one folder per run) lands in
 `../server/benchmark/results/<scenario>/exp_*/` — each holds `merged_analysis_*.csv` (per-image

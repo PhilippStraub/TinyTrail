@@ -1,0 +1,15 @@
+pdf_requirement,notebook_documentation
+Hardware,Raspberry Pi Zero 2W with external power supply / Voltcraft DSP-3005 at 5 V; power logs are integrated per experiment.
+Model task,Image classification benchmark on novelty/test images.
+Used image dataset(s),imagenette
+Used models / inference pipelines,"KMeans, KNN, Nearest Centroid"
+PCA and no-PCA variants,"nopca, pca95var"
+Reference samples sweep,"2..100 samples/class; values: [2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]"
+Experimental metrics collected,"Accuracy, RSS memory, analytical classifier/reference-store memory, CPU, latency, gross/net energy and power."
+How metrics are collected,Accuracy/latency/CPU/RSS from merged/resource logs; power/energy from external supply metadata; net values subtract idle baseline.
+Training process,Scenario pipelines are trained on the full training split; benchmark varies only initialization sample size.
+Seeds,"Initialization/test-order seeds present: [42, 123, 456, 789, 1337, 1618, 2021, 2718, 3141, 9876]"
+Train/test size,Median benchmark test images per run: 200; training split is the scenario training set used by the TinyMLOps retrainer.
+PCA explained variance,pca95var: 95.02%
+Averaging/statistical tests,"Means, std and 95% CI across seeds; paired Wilcoxon PCA vs no-PCA where matched pairs exist."
+Expected graphs per dataset,Combined grid plus split grids with PCA and without PCA; power distribution boxplot integrated.
