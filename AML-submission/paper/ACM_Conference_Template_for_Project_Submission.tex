@@ -499,7 +499,7 @@ Table~\ref{tab:pca-effect} reports paired PCA effects as \texttt{pca95var} minus
 PCA influences the pipeline along several dimensions, not only accuracy and energy, so this subsection also discusses its effect on the storage footprint, feature dimensionality, latency, and CPU usage.
 
 \paragraph{Accuracy.}
-For CIFAR-10, PCA increases mean accuracy by 0.0088 for KMeans, 0.0060 for KNN, and 0.0066 for Nearest Centroid.
+For CIFAR-10, PCA increases mean accuracy by 0.0088 for KMeans, 0.0069 for KNN, and 0.0066 for Nearest Centroid.
 For Imagenette, the paired mean accuracy differences are small: +0.0017 for KMeans, $-$0.0020 for KNN, and +0.0014 for Nearest Centroid.
 
 \paragraph{Energy and power.}
@@ -539,7 +539,7 @@ On Imagenette, PCA is primarily a reference-store growth optimization: accuracy 
     \midrule
     CIFAR-10 & KMeans & Accuracy & 120 & 0.7731 & 0.7643 & +0.0088 \\
     CIFAR-10 & KMeans & Net energy/img (J) & 120 & 0.0418 & 0.0410 & +0.0009 \\
-    CIFAR-10 & KNN & Accuracy & 120 & 0.7549 & 0.7489 & +0.0060 \\
+    CIFAR-10 & KNN & Accuracy & 118 & 0.7576 & 0.7507 & +0.0069 \\
     CIFAR-10 & KNN & Net energy/img (J) & 118 & 0.0450 & 0.0457 & -0.0007 \\
     CIFAR-10 & Nearest Centroid & Accuracy & 120 & 0.7893 & 0.7826 & +0.0066 \\
     CIFAR-10 & Nearest Centroid & Net energy/img (J) & 120 & 0.0449 & 0.0407 & +0.0042 \\
@@ -547,7 +547,7 @@ On Imagenette, PCA is primarily a reference-store growth optimization: accuracy 
     Imagenette & KMeans & Net energy/img (J) & 120 & 0.2923 & 0.2957 & -0.0034 \\
     Imagenette & KNN & Accuracy & 120 & 0.9455 & 0.9475 & -0.0020 \\
     Imagenette & KNN & Net energy/img (J) & 120 & 0.3004 & 0.3088 & -0.0084 \\
-    Imagenette & Nearest Centroid & Accuracy & 120 & 0.9716 & 0.9702 & +0.0014 \\
+    Imagenette & Nearest Centroid & Accuracy & 119 & 0.9722 & 0.9708 & +0.0014 \\
     Imagenette & Nearest Centroid & Net energy/img (J) & 119 & 0.2978 & 0.2918 & +0.0060 \\
     \bottomrule
   \end{tabular}
@@ -574,7 +574,7 @@ As Table~\ref{tab:sweet-spots-eff} shows, the 10-samples-per-class operating poi
 
 \paragraph{RQ3 -- PCA Influence.}
 The goal of RQ3 was to evaluate whether PCA improves the accuracy--efficiency trade-off for the evaluated distance-based classifiers.
-On CIFAR-10, \texttt{pca95var} improves mean accuracy for all three classifiers by 0.0060 to 0.0088, with only small energy changes for KMeans and KNN but a larger energy increase for Nearest Centroid.
+On CIFAR-10, \texttt{pca95var} improves mean accuracy for all three classifiers by 0.0066 to 0.0088, with only small energy changes for KMeans and KNN but a larger energy increase for Nearest Centroid.
 On Imagenette, PCA changes mean accuracy only marginally, ranging from $-$0.0020 for KNN to +0.0017 for KMeans, while paired net-energy differences remain close to zero between $-$0.0084 and +0.0060~J per image.
 Independently of the dataset, PCA reduces the feature dimensionality and therefore the active classifier state and reference-store footprint in proportion to the dimension reduction, but it also adds a fixed feature-processor artifact.
 Therefore, PCA is useful for CIFAR-10 when a small accuracy gain is desired, and it is attractive on Imagenette primarily when bounding reference-store growth matters at essentially unchanged accuracy and energy.
