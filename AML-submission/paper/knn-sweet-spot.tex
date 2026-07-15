@@ -44,9 +44,9 @@
 
 \begin{abstract}
 TinyML deployments on remotely operated embedded systems must keep models accurate under concept drift while balancing strict constraints on memory, latency, and energy consumption.
-This work analyzes the inference pipeline of the TinyMLOps framework and evaluates distance-based classifiers as the groundwork for future on-device learning, investigating how classifier choice, reference-sample size, and Principal Component Analysis (PCA) affect the accuracy--efficiency trade-off.
+This work analyzes the inference pipeline of a TinyMLOps framework and evaluates distance-based classifiers as the groundwork for future on-device learning, investigating how classifier choice, reference-sample size, and Principal Component Analysis (PCA) affect the accuracy--efficiency trade-off.
 We compare KMeans, k-nearest neighbors (KNN), and Nearest Centroid classifiers on CIFAR-10 and Imagenette using no-PCA and \texttt{pca95var} variants.
-The benchmark covers 2 to 100 stored reference samples per class, ten seeds per configuration, and resource measurements collected on a Raspberry Pi Zero 2W with external power monitoring, for a total of 1440 completed deployments, of which 1437 pass a post-hoc measurement audit and enter the analysis.
+The benchmark covers 2 to 100 stored reference samples per class, ten seeds per configuration, and resource measurements collected on a Raspberry Pi Zero 2W with external power monitoring, for a total of 1440 completed deployments.
 
 The results show that most configurations reach 95\% of their maximum observed mean accuracy with only 10 reference samples per class.
 On CIFAR-10, Nearest Centroid achieves the highest observed mean accuracy of 0.8095 with PCA, while remaining a compact classifier.
@@ -207,8 +207,7 @@ To keep the description reproducible, the following subsections document what wa
 \label{sec:scope}
 The benchmark evaluates three distance-based classifiers: KMeans, KNN, and Nearest Centroid~\cite{cover1967nearest,kanungo2002efficient,calafiore2019sparse}.
 For each classifier, two preprocessing variants are considered: \texttt{nopca}, which uses the full feature representation, and \texttt{pca95var}, which projects features to enough principal components to retain approximately 95\% of the variance.
-This variant follows the established PCA practice of selecting the retained dimensionality by a cumulative explained-variance criterion~\cite{geron2019handson}.
-Concretely, the retained dimensionality is chosen as the smallest number of principal components whose cumulative explained variance reaches approximately 95\%, following the common recommendation to keep the number of dimensions that add up to a sufficiently large portion of the variance, e.g.\ 95\%~\cite{geron2019handson}.
+This variant follows the established PCA practice of selecting the smallest number of principal components whose cumulative explained variance reaches a sufficiently large portion of the original feature variance, here approximately 95\%~\cite{geron2019handson}.
 This threshold is used as a conservative, reproducible operating point: it preserves most of the measured feature-space variance while still reducing the deployed reference vectors, and its practical effect is evaluated directly against the corresponding \texttt{nopca} baseline.
 The number of stored reference samples per class is swept over 12 values: 2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, and 100.
 Each configuration is repeated with ten initialization and test-order seeds: 42, 123, 456, 789, 1337, 1618, 2021, 2718, 3141, and 9876.
@@ -228,16 +227,12 @@ Its extracted feature representation has 1280 dimensions without PCA and 608 dim
 For both dataset families, the scenario-level feature processing and PCA preparation use the corresponding training split.
 The deployed distance-based classifier is then initialized from a sampled reference store whose size is controlled by the samples-per-class setting. Benchmark test images are evaluated separately from this sampled reference store.
 
-The benchmark keeps the reference-store construction and the measured test set separate at the directory level.
-For CIFAR-10, the repository export script writes the official CIFAR-10 training batches to the dataset's \texttt{train} directory and the official test batch to its \texttt{test} directory.
-For Imagenette, the export uses the Imagenette training split as the training/reference directory and maps Imagenette's validation split to the benchmark \texttt{test} directory.
-Initial classifier states are built only from the corresponding \texttt{train} directory of the dataset family.
-For a given seed and class index, the initial-state script first sorts the available class images, then draws at most the configured number of samples per class without replacement using a class-specific generator seeded by the run seed plus the class index.
+The benchmark keeps reference-store construction and test evaluation separate.
+For a given seed and class index, the available reference images are sorted and at most the configured number of samples per class is drawn without replacement using a class-specific generator seeded by the run seed plus the class index.
 The selected images are converted to feature vectors with the same TensorFlow Lite feature extractor and optional feature processor that are deployed on the device.
 KNN stores the selected feature vectors directly, whereas Nearest Centroid and KMeans fit their prototypes from exactly the same selected per-class reference set. The selected indices and per-class counts are persisted in the initial-state metadata.
 
-The benchmark test set for each deployment is rebuilt from the corresponding held-out \texttt{test} directory before packaging the scenario.
-The pipeline deletes and recreates the scenario's deployment image directory, iterates over the sorted class folders, shuffles each class with the same class-specific seed rule, and copies the first configured test images into the deployment package.
+For each deployment, a class-balanced held-out test subset is selected with the same class-specific seed rule.
 With 20 test images per class and ten classes, each run therefore evaluates exactly 200 benchmark test images, balanced as 20 images per class.
 Because the same seed is used for both reference sampling and test-image selection, one run is reproducible end-to-end. Because ten different seeds are used, the reported means aggregate over different reference stores and different class-balanced subsets of the held-out test split.
 
@@ -338,30 +333,6 @@ The following subsections answer the research questions in detail.
   \caption{Imagenette benchmark overview across the reference-sample sweep. The panels report mean accuracy, net energy per image, net average power, mean process RSS, latency, and CPU utilization for each classifier/PCA combination. Shaded bands denote 95\% confidence intervals across the ten seeds. KNN reaches the highest accuracy but also exhibits the clearest sample-count-dependent increase in process memory and latency, while the prototype-based classifiers remain nearly flat in these resource metrics.}
   \Description{Six-panel Imagenette benchmark summary showing accuracy, net energy per image, net average power, mean process RSS, latency, and CPU utilization across reference-sample counts for KMeans, KNN, and Nearest Centroid with and without PCA.}
   \label{fig:imagenet-summary-grid}
-\end{figure*}
-
-\begin{figure*}[t]
-  \centering
-  \includegraphics[width=\textwidth]{cifar10_energy_vs_samples.png}
-  \caption{CIFAR-10 net energy per image by classifier and reference-sample count. Lines show seed means and shaded bands show 95\% confidence intervals. KMeans remains comparatively stable across the sweep, KNN energy increases with larger reference stores, and Nearest Centroid with \texttt{pca95var} is consistently above its no-PCA counterpart despite the smaller classifier state.}
-  \Description{Three CIFAR-10 line plots comparing no-PCA and pca95var net energy per image across reference-sample counts for KMeans, KNN, and Nearest Centroid.}
-  \label{fig:cifar10-energy-samples}
-\end{figure*}
-
-\begin{figure*}[t]
-  \centering
-  \includegraphics[width=0.94\textwidth]{imagenet_energy_vs_samples.png}
-  \caption{Imagenette net energy per image by classifier and reference-sample count. Lines show seed means and shaded bands show 95\% confidence intervals. KMeans shows small PCA--no-PCA differences, KNN tends to consume less energy with \texttt{pca95var} at larger reference stores, and Nearest Centroid shows a small PCA-related increase for most sample counts.}
-  \Description{Three Imagenette line plots comparing no-PCA and pca95var net energy per image across reference-sample counts for KMeans, KNN, and Nearest Centroid.}
-  \label{fig:imagenet-energy-samples}
-\end{figure*}
-
-\begin{figure*}[t]
-  \centering
-  \includegraphics[width=0.94\textwidth]{imagenet_actual_ram_usage.png}
-  \caption{Observed Imagenette process memory from the benchmark logs. The panels show mean and peak process RSS across the reference-sample sweep. Memory growth is concentrated in KNN because its reference store grows with the number of stored exemplars. \texttt{pca95var} reduces this slope, while KMeans and Nearest Centroid remain nearly constant.}
-  \Description{Two Imagenette line plots showing mean and peak process RSS across reference-sample counts for KMeans, KNN, and Nearest Centroid with and without PCA. KNN without PCA grows most strongly, KNN with PCA grows more slowly, and the prototype-based classifiers remain nearly flat.}
-  \label{fig:imagenet-ram-usage}
 \end{figure*}
 
 \subsection{RQ1: Algorithm Selection}
@@ -498,36 +469,6 @@ The classifier state size at the knee makes the reference-store footprint explic
 Table~\ref{tab:pca-effect} reports paired PCA effects as \texttt{pca95var} minus \texttt{nopca} for accuracy and net energy.
 PCA influences the pipeline along several dimensions, not only accuracy and energy, so this subsection also discusses its effect on the storage footprint, feature dimensionality, latency, and CPU usage.
 
-\paragraph{Accuracy.}
-For CIFAR-10, PCA increases mean accuracy by 0.0088 for KMeans, 0.0069 for KNN, and 0.0066 for Nearest Centroid.
-For Imagenette, the paired mean accuracy differences are small: +0.0017 for KMeans, $-$0.0020 for KNN, and +0.0014 for Nearest Centroid.
-
-\paragraph{Energy and power.}
-For CIFAR-10, the net-energy differences are +0.0009~J per image for KMeans, $-$0.0007~J for KNN, and +0.0042~J for Nearest Centroid.
-For Imagenette, the paired mean net-energy differences are $-$0.0034~J per image for KMeans, $-$0.0084~J per image for KNN, and +0.0060~J per image for Nearest Centroid. The corresponding net power values remain within a narrow band around 0.50--0.52~W (Table~\ref{tab:resource-summary}), so PCA does not impose a systematic energy penalty on Imagenette.
-The dataset-specific energy curves in Figures~\ref{fig:cifar10-energy-samples} and~\ref{fig:imagenet-energy-samples} show the same pattern visually: CIFAR-10 mainly highlights the higher Nearest Centroid energy with PCA, whereas Imagenette shows no systematic PCA energy inflation.
-
-\paragraph{Storage footprint and dimensionality.}
-The most consistent PCA effect is on the active classifier/reference-store footprint.
-Because \texttt{pca95var} reduces the feature dimension from 160 to 31 on CIFAR-10 (about 5.2$\times$) and from 1280 to 608 on Imagenette (about 2.1$\times$), the PCA-projected reference vectors are correspondingly smaller, which reduces the classifier state and reference-store size in roughly the same proportion.
-At the 95\% knee (Table~\ref{tab:sweet-spots-eff}), the classifier state shrinks from 18.75~KB to 3.63~KB (CIFAR-10 KMeans), from 6.25~KB to 1.21~KB (CIFAR-10 Nearest Centroid), from 500~KB to 237.5~KB (Imagenette KNN), and from 50~KB to 23.75~KB (Imagenette Nearest Centroid).
-However, the PCA variants also require the fixed feature-processor artifact shown in Table~\ref{tab:feature-processor-overhead}.
-This overhead is small for CIFAR-10 (22.13~KB), but substantial for Imagenette (3052.06~KB) because the PCA matrix has shape $608\times1280$.
-Consequently, PCA reduces the growth rate of the reference store and can still be attractive for large KNN stores or future on-device sample accumulation, but the total deployed state is not necessarily smaller at the low sample-count knees once the fixed Imagenette processor is included.
-For Imagenette, PCA should therefore be interpreted primarily as a way to bound reference-store growth rather than as an immediate total-package-size reduction at 5--10 samples per class.
-
-\paragraph{Latency, CPU, and process memory.}
-The effect of PCA on latency and CPU usage is small.
-On CIFAR-10, mean latency stays near 44--45~ms and CPU near 5\% in all settings. On Imagenette, mean latency is around 345--367~ms and CPU near 22\% in all settings, with PCA differences of only a few percent (Table~\ref{tab:resource-summary}).
-Observed RSS memory also changes only marginally, and for Imagenette KNN it is even lower with PCA (75.2~MB) than without (79.4~MB), consistent with the smaller reference store.
-Figure~\ref{fig:imagenet-ram-usage} makes this reference-store effect visible across the sample-count sweep: KNN process memory grows with the number of stored exemplars, while PCA reduces the slope and the prototype-based classifiers remain nearly flat.
-
-\paragraph{Trade-off interpretation.}
-PCA should therefore not be interpreted as a general latency, energy, or total-package-size optimization in this benchmark.
-Its main benefit is the reduction of the stored feature representation, whereas the fixed projection matrix adds feature-processor state, the additional projection step can offset part of the computational benefit during inference, and the feature extractor still dominates latency and energy.
-On CIFAR-10, the small but consistent accuracy gain and the approximately 5.2$\times$ smaller classifier state make \texttt{pca95var} attractive for most configurations. The main exception is a strictly energy-constrained Nearest Centroid deployment, where the observed +0.0042~J per image should be weighed against the smaller state.
-On Imagenette, PCA is primarily a reference-store growth optimization: accuracy and energy remain essentially unchanged, but the 2.1$\times$ dimensionality reduction substantially reduces each stored reference vector, especially for KNN and larger sample counts, while adding a fixed 3.05~MB processor artifact.
-
 \begin{table*}[t]
   \caption{Paired PCA effect by dataset, classifier, and metric. Delta is \texttt{pca95var} minus \texttt{nopca}.}
   \label{tab:pca-effect}
@@ -552,6 +493,60 @@ On Imagenette, PCA is primarily a reference-store growth optimization: accuracy 
     \bottomrule
   \end{tabular}
 \end{table*}
+
+\paragraph{Accuracy.}
+For CIFAR-10, PCA increases mean accuracy by 0.0088 for KMeans, 0.0069 for KNN, and 0.0066 for Nearest Centroid.
+For Imagenette, the paired mean accuracy differences are small: +0.0017 for KMeans, $-$0.0020 for KNN, and +0.0014 for Nearest Centroid.
+
+\paragraph{Energy and power.}
+For CIFAR-10, the net-energy differences are +0.0009~J per image for KMeans, $-$0.0007~J for KNN, and +0.0042~J for Nearest Centroid.
+For Imagenette, the paired mean net-energy differences are $-$0.0034~J per image for KMeans, $-$0.0084~J per image for KNN, and +0.0060~J per image for Nearest Centroid. The corresponding net power values remain within a narrow band around 0.50--0.52~W (Table~\ref{tab:resource-summary}), so PCA does not impose a systematic energy penalty on Imagenette.
+The dataset-specific energy curves in Figures~\ref{fig:cifar10-energy-samples} and~\ref{fig:imagenet-energy-samples} show the same pattern visually: CIFAR-10 mainly highlights the higher Nearest Centroid energy with PCA, whereas Imagenette shows no systematic PCA energy inflation.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{cifar10_energy_vs_samples.png}
+  \caption{CIFAR-10 net energy per image by classifier and reference-sample count. Lines show seed means and shaded bands show 95\% confidence intervals. KMeans remains comparatively stable across the sweep, KNN energy increases with larger reference stores, and Nearest Centroid with \texttt{pca95var} is consistently above its no-PCA counterpart despite the smaller classifier state.}
+  \Description{Three CIFAR-10 line plots comparing no-PCA and pca95var net energy per image across reference-sample counts for KMeans, KNN, and Nearest Centroid.}
+  \label{fig:cifar10-energy-samples}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.94\textwidth]{imagenet_energy_vs_samples.png}
+  \caption{Imagenette net energy per image by classifier and reference-sample count. Lines show seed means and shaded bands show 95\% confidence intervals. KMeans shows small PCA--no-PCA differences, KNN tends to consume less energy with \texttt{pca95var} at larger reference stores, and Nearest Centroid shows a small PCA-related increase for most sample counts.}
+  \Description{Three Imagenette line plots comparing no-PCA and pca95var net energy per image across reference-sample counts for KMeans, KNN, and Nearest Centroid.}
+  \label{fig:imagenet-energy-samples}
+\end{figure*}
+
+\paragraph{Storage footprint and dimensionality.}
+PCA's most consistent benefit is reducing the storage footprint of the active classifier and reference store.
+Because \texttt{pca95var} reduces the feature dimension from 160 to 31 on CIFAR-10 (about 5.2$\times$) and from 1280 to 608 on Imagenette (about 2.1$\times$), the PCA-projected reference vectors are correspondingly smaller, which reduces the classifier state and reference-store size in roughly the same proportion.
+At the 95\% knee (Table~\ref{tab:sweet-spots-eff}), the classifier state shrinks from 18.75~KB to 3.63~KB (CIFAR-10 KMeans), from 6.25~KB to 1.21~KB (CIFAR-10 Nearest Centroid), from 500~KB to 237.5~KB (Imagenette KNN), and from 50~KB to 23.75~KB (Imagenette Nearest Centroid).
+However, the PCA variants also require the fixed feature-processor artifact shown in Table~\ref{tab:feature-processor-overhead}.
+This overhead is small for CIFAR-10 (22.13~KB), but substantial for Imagenette (3052.06~KB) because the PCA matrix has shape $608\times1280$.
+Consequently, PCA reduces the growth rate of the reference store and can still be attractive for large KNN stores or future on-device sample accumulation, but the total deployed state is not necessarily smaller at the low sample-count knees once the fixed Imagenette processor is included.
+For Imagenette, PCA should therefore be interpreted primarily as a way to bound reference-store growth rather than as an immediate total-package-size reduction at 5--10 samples per class.
+
+\paragraph{Latency, CPU, and process memory.}
+The effect of PCA on latency and CPU usage is small.
+On CIFAR-10, mean latency stays near 44--45~ms and CPU near 5\% in all settings. On Imagenette, mean latency is around 345--367~ms and CPU near 22\% in all settings, with PCA differences of only a few percent (Table~\ref{tab:resource-summary}).
+Observed RSS memory also changes only marginally, and for Imagenette KNN it is even lower with PCA (75.2~MB) than without (79.4~MB), consistent with the smaller reference store.
+Figure~\ref{fig:imagenet-ram-usage} makes this reference-store effect visible across the sample-count sweep: KNN process memory grows with the number of stored exemplars, while PCA reduces the slope and the prototype-based classifiers remain nearly flat.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{imagenet_actual_ram_usage.png}
+  \caption{Observed Imagenette process memory from the benchmark logs. The panels show mean and peak process RSS across the reference-sample sweep. Memory growth is concentrated in KNN because its reference store grows with the number of stored exemplars. \texttt{pca95var} reduces this slope, while KMeans and Nearest Centroid remain nearly constant.}
+  \Description{Two Imagenette line plots showing mean and peak process RSS across reference-sample counts for KMeans, KNN, and Nearest Centroid with and without PCA. KNN without PCA grows most strongly, KNN with PCA grows more slowly, and the prototype-based classifiers remain nearly flat.}
+  \label{fig:imagenet-ram-usage}
+\end{figure}
+
+\paragraph{Trade-off interpretation.}
+PCA should therefore not be interpreted as a general latency, energy, or total-package-size optimization in this benchmark.
+Its main benefit is the reduction of the stored feature representation, whereas the fixed projection matrix adds feature-processor state, the additional projection step can offset part of the computational benefit during inference, and the feature extractor still dominates latency and energy.
+On CIFAR-10, the small but consistent accuracy gain and the approximately 5.2$\times$ smaller classifier state make \texttt{pca95var} attractive for most configurations. The main exception is a strictly energy-constrained Nearest Centroid deployment, where the observed +0.0042~J per image should be weighed against the smaller state.
+On Imagenette, PCA is primarily a reference-store growth optimization: accuracy and energy remain essentially unchanged, but the 2.1$\times$ dimensionality reduction substantially reduces each stored reference vector, especially for KNN and larger sample counts, while adding a fixed 3.05~MB processor artifact.
 
 \section{Discussion}
 \label{sec:discussion}
