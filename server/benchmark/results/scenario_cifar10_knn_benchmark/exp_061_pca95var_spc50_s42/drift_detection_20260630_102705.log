@@ -1,0 +1,21 @@
+2026-06-30 10:27:05,157 - drift_detection - INFO - Logging initialized at level INFO
+2026-06-30 10:27:05,157 - drift_detection - INFO - Log file: logs/drift_detection_20260630_102705.log
+2026-06-30 10:27:05,163 - drift_detection - INFO - Starting folder-based On-Device Drift Detection
+2026-06-30 10:27:05,164 - drift_detection - INFO - Run ID: 20260630_102705
+2026-06-30 10:27:05,164 - drift_detection - INFO - Device ID: hans
+2026-06-30 10:27:05,190 - drift_detection - INFO - Shuffled 200 input images with seed=42
+2026-06-30 10:27:05,190 - drift_detection - INFO - Discovered 200 input images in ./input_images
+2026-06-30 10:27:05,191 - drift_detection - INFO - Loaded 10 labels: ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+2026-06-30 10:27:05,217 - drift_detection - INFO - StandardScalerPCA transformer initialized
+2026-06-30 10:27:05,289 - drift_detection - INFO - KNN initialized with 500 samples
+2026-06-30 10:27:05,291 - drift_detection - INFO - Loaded reference stats: mean=6.447105216026306, std=1.3349167966926072, sample_count=500
+2026-06-30 10:27:05,291 - tinylcm_python.drift_monitor - INFO - Using pre-computed reference mean: 6.447105216026306
+2026-06-30 10:27:05,292 - drift_detection - INFO - Initialized 1 drift detector(s)
+2026-06-30 10:27:05,294 - drift_detection - INFO - Resource CSV logging started: logs/resource_usage_20260630_102705.csv at 5.0 Hz
+2026-06-30 10:27:54,811 - drift_detection - INFO - No more input images. Stopping.
+2026-06-30 10:27:54,858 - drift_detection - INFO - Resource CSV logging stopped
+2026-06-30 10:27:54,973 - drift_detection - INFO - Merged analysis created: logs/merged_analysis_20260630_102705.csv
+2026-06-30 10:27:54,973 - drift_detection - INFO - Final accuracy: 0.7700 based on 200/200 labeled samples
+2026-06-30 10:27:54,977 - drift_detection - INFO - Final performance summary: {'run_id': '20260630_102705', 'total_inferences': 200, 'total_drift_events': 0, 'total_drifted_inferences': 0, 'avg_latency_ms': 44.37327980995178, 'max_latency_ms': 59.12208557128906, 'min_latency_ms': 34.98530387878418, 'avg_confidence': 0.8160000073164702, 'runtime_seconds': 49.82110548019409, 'labeled_samples': 200, 'accuracy': 0.77}
+2026-06-30 10:27:54,977 - drift_detection - INFO - Final merged analysis file: logs/merged_analysis_20260630_102705.csv
+2026-06-30 10:27:54,977 - drift_detection - INFO - Shutdown complete

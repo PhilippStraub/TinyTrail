@@ -1,0 +1,41 @@
+{
+  "pca_enabled": true,
+  "pca_components": null,
+  "pca_target": 0.95,
+  "pca_target_type": "explained_variance",
+  "pca_label": "pca95var",
+  "samples_per_class": 80,
+  "seed": 2718,
+  "experiment_id": "exp_098_pca95var_spc80_s2718",
+  "scenario_name": "scenario_imagenette_nearest_centroid",
+  "dataset_name": "imagenette",
+  "classifier_type": "NearestCentroidClassifier",
+  "config_source": "C:\\Users\\jonas\\DBE\\KNN Sampling\\tinymlops-framework\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_imagenette_nearest_centroid\\config.json",
+  "inference_resolution": [
+    224,
+    224
+  ],
+  "python_example_dir": "C:\\Users\\jonas\\DBE\\KNN Sampling\\tinymlops-framework\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_imagenette_nearest_centroid",
+  "raw_data_dir": "C:\\Users\\jonas\\DBE\\KNN Sampling\\tinymlops-framework\\server\\Deployment-Packager\\nats-model-service\\raw_data\\scenario_imagenette_nearest_centroid",
+  "started_at": "2026-07-08T12:46:15.968011",
+  "result_received_at": "2026-07-08T12:48:35.753195",
+  "pca_explained_variance_%": 95.01878356933594,
+  "power": {
+    "full_window": {
+      "energy_J": 152.7803,
+      "avg_power_W": 1.0954,
+      "duration_s": 139.471,
+      "samples": 679
+    },
+    "inference_window": {
+      "energy_J": 130.1744,
+      "avg_power_W": 1.1229,
+      "duration_s": 115.93,
+      "samples": 565,
+      "energy_per_image_J": 0.650872,
+      "net_avg_power_W": 0.5089,
+      "net_energy_J": 58.9968,
+      "net_energy_per_image_J": 0.294984
+    }
+  }
+}

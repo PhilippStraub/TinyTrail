@@ -1,0 +1,41 @@
+{
+  "pca_enabled": true,
+  "pca_components": null,
+  "pca_target": 0.95,
+  "pca_target_type": "explained_variance",
+  "pca_label": "pca95var",
+  "samples_per_class": 40,
+  "seed": 42,
+  "experiment_id": "exp_051_pca95var_spc40_s42",
+  "scenario_name": "scenario_imagenette_kmeans",
+  "dataset_name": "imagenette",
+  "classifier_type": "KMeansPrototypeClassifier",
+  "config_source": "C:\\Users\\jonas\\DBE\\KNN Sampling\\tinymlops-framework\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_imagenette_kmeans\\config.json",
+  "inference_resolution": [
+    224,
+    224
+  ],
+  "python_example_dir": "C:\\Users\\jonas\\DBE\\KNN Sampling\\tinymlops-framework\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_imagenette_kmeans",
+  "raw_data_dir": "C:\\Users\\jonas\\DBE\\KNN Sampling\\tinymlops-framework\\server\\Deployment-Packager\\nats-model-service\\raw_data\\scenario_imagenette_kmeans",
+  "started_at": "2026-07-08T06:21:57.571233",
+  "result_received_at": "2026-07-08T06:24:03.241680",
+  "pca_explained_variance_%": 95.01878356933594,
+  "power": {
+    "full_window": {
+      "energy_J": 139.8398,
+      "avg_power_W": 1.116,
+      "duration_s": 125.3,
+      "samples": 609
+    },
+    "inference_window": {
+      "energy_J": 130.3025,
+      "avg_power_W": 1.1231,
+      "duration_s": 116.019,
+      "samples": 564,
+      "energy_per_image_J": 0.651513,
+      "net_avg_power_W": 0.5091,
+      "net_energy_J": 59.0653,
+      "net_energy_per_image_J": 0.295326
+    }
+  }
+}

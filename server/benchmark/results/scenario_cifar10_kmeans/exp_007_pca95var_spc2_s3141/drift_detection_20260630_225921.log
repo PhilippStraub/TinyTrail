@@ -1,0 +1,38 @@
+2026-06-30 22:59:21,394 - drift_detection - INFO - Logging initialized at level INFO
+2026-06-30 22:59:21,395 - drift_detection - INFO - Log file: logs/drift_detection_20260630_225921.log
+2026-06-30 22:59:21,401 - drift_detection - INFO - Starting folder-based On-Device Drift Detection
+2026-06-30 22:59:21,401 - drift_detection - INFO - Run ID: 20260630_225921
+2026-06-30 22:59:21,402 - drift_detection - INFO - Device ID: hans
+2026-06-30 22:59:21,427 - drift_detection - INFO - Shuffled 200 input images with seed=3141
+2026-06-30 22:59:21,428 - drift_detection - INFO - Discovered 200 input images in ./input_images
+2026-06-30 22:59:21,429 - drift_detection - INFO - Loaded 10 labels: ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+2026-06-30 22:59:21,455 - drift_detection - INFO - StandardScalerPCA transformer initialized
+2026-06-30 22:59:21,459 - drift_detection - INFO - KNN initialized with 20 samples
+2026-06-30 22:59:21,460 - drift_detection - INFO - Loaded reference stats: mean=13.224547052383423, std=1.897891791885903, sample_count=20
+2026-06-30 22:59:21,460 - tinylcm_python.drift_monitor - INFO - Using pre-computed reference mean: 13.224547052383423
+2026-06-30 22:59:21,461 - drift_detection - INFO - Initialized 1 drift detector(s)
+2026-06-30 22:59:21,463 - drift_detection - INFO - Resource CSV logging started: logs/resource_usage_20260630_225921.csv at 5.0 Hz
+2026-06-30 22:59:26,333 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Entering drift state (down). cum_down=10.54 > threshold 9.91
+2026-06-30 22:59:26,334 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: agg_distance=10.11, reference_mean=13.22, err=-3.11, cum_up=0.00, cum_down=10.54
+2026-06-30 22:59:26,334 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Current prediction='deer', confidence=0.39
+2026-06-30 22:59:26,335 - tinylcm_python.drift_monitor - WARNING - KNNDistanceMonitor: DRIFT DETECTED by Page-Hinkley test! PH value: 10.54 > threshold: 9.91, avg_distance: 10.11, reference: 13.22, ratio: 0.76x
+2026-06-30 22:59:26,335 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Drift detected! Agg distance=10.1147, Reference=13.2245, Prediction=deer, PH value=10.5405
+2026-06-30 22:59:38,591 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Exited drift state. Both cum_up=5.63 and cum_down=4.86 <= exit_threshold 6.94
+2026-06-30 22:59:39,063 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Entering drift state (up). cum_up=12.75 > threshold 9.91
+2026-06-30 22:59:39,064 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: agg_distance=20.04, reference_mean=13.22, err=6.81, cum_up=12.75, cum_down=0.00
+2026-06-30 22:59:39,064 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Current prediction='automobile', confidence=0.53
+2026-06-30 22:59:39,064 - tinylcm_python.drift_monitor - WARNING - KNNDistanceMonitor: DRIFT DETECTED by Page-Hinkley test! PH value: 12.75 > threshold: 9.91, avg_distance: 20.04, reference: 13.22, ratio: 1.52x
+2026-06-30 22:59:39,064 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Drift detected! Agg distance=20.0383, Reference=13.2245, Prediction=automobile, PH value=12.7545
+2026-06-30 22:59:46,739 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Exited drift state. Both cum_up=5.96 and cum_down=3.34 <= exit_threshold 6.94
+2026-06-30 23:00:00,106 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Entering drift state (down). cum_down=11.71 > threshold 9.91
+2026-06-30 23:00:00,106 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: agg_distance=8.99, reference_mean=13.22, err=-4.24, cum_up=0.00, cum_down=11.71
+2026-06-30 23:00:00,107 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Current prediction='cat', confidence=0.43
+2026-06-30 23:00:00,107 - tinylcm_python.drift_monitor - WARNING - KNNDistanceMonitor: DRIFT DETECTED by Page-Hinkley test! PH value: 11.71 > threshold: 9.91, avg_distance: 8.99, reference: 13.22, ratio: 0.68x
+2026-06-30 23:00:00,108 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Drift detected! Agg distance=8.9889, Reference=13.2245, Prediction=cat, PH value=11.7086
+2026-06-30 23:00:10,638 - drift_detection - INFO - No more input images. Stopping.
+2026-06-30 23:00:10,640 - drift_detection - INFO - Resource CSV logging stopped
+2026-06-30 23:00:10,790 - drift_detection - INFO - Merged analysis created: logs/merged_analysis_20260630_225921.csv
+2026-06-30 23:00:10,791 - drift_detection - INFO - Final accuracy: 0.7350 based on 200/200 labeled samples
+2026-06-30 23:00:10,794 - drift_detection - INFO - Final performance summary: {'run_id': '20260630_225921', 'total_inferences': 200, 'total_drift_events': 0, 'total_drifted_inferences': 37, 'avg_latency_ms': 42.75729060173035, 'max_latency_ms': 57.95621871948242, 'min_latency_ms': 33.40005874633789, 'avg_confidence': 0.4501865375041962, 'runtime_seconds': 49.40130376815796, 'labeled_samples': 200, 'accuracy': 0.735}
+2026-06-30 23:00:10,795 - drift_detection - INFO - Final merged analysis file: logs/merged_analysis_20260630_225921.csv
+2026-06-30 23:00:10,795 - drift_detection - INFO - Shutdown complete
