@@ -113,7 +113,7 @@ K-means reduces the stored representation by summarizing data through cluster ce
 Nearest centroid classification computes class centroids during training and assigns a test sample to the class of the nearest centroid~\cite{calafiore2019sparse,manning2008introduction}.
 These methods are relevant for TinyML because their representation and update behavior can be easier to control than that of more complex model families.
 At the same time, they create an explicit trade-off: storing more reference information can improve accuracy, but it also increases memory requirements and inference cost.
-PCA~\cite{jolliffe2002pca} can reduce feature dimensionality before classification and thereby enable efficiency gains, but it can also remove information that is relevant for accurate classification.
+PCA can reduce feature dimensionality before classification and thereby enable efficiency gains, but it can also remove information that is relevant for accurate classification~\cite{geron2019handson}.
 
 The feature extractors used in this work build on established image-classification architectures.
 The Imagenette pipeline uses an ImageNet-pretrained MobileNetV2 backbone~\cite{sandler2018mobilenetv2}, a mobile-friendly convolutional architecture.
@@ -207,7 +207,7 @@ To keep the description reproducible, the following subsections document what wa
 \label{sec:scope}
 The benchmark evaluates three distance-based classifiers: KMeans, KNN, and Nearest Centroid~\cite{cover1967nearest,kanungo2002efficient,calafiore2019sparse}.
 For each classifier, two preprocessing variants are considered: \texttt{nopca}, which uses the full feature representation, and \texttt{pca95var}, which projects features to enough principal components to retain approximately 95\% of the variance.
-This variant follows the established PCA practice of selecting the retained dimensionality by a cumulative explained-variance criterion~\cite{jolliffe2002pca}.
+This variant follows the established PCA practice of selecting the retained dimensionality by a cumulative explained-variance criterion~\cite{geron2019handson}.
 Concretely, the retained dimensionality is chosen as the smallest number of principal components whose cumulative explained variance reaches approximately 95\%, following the common recommendation to keep the number of dimensions that add up to a sufficiently large portion of the variance, e.g.\ 95\%~\cite{geron2019handson}.
 This threshold is used as a conservative, reproducible operating point: it preserves most of the measured feature-space variance while still reducing the deployed reference vectors, and its practical effect is evaluated directly against the corresponding \texttt{nopca} baseline.
 The number of stored reference samples per class is swept over 12 values: 2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, and 100.
