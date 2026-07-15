@@ -5,6 +5,9 @@ TinyMLOps framework.
 **Hardware:** Raspberry Pi Zero 2W with external power logging via Voltcraft DSP-3005 at the
 5 V rail.
 **Run:** 1440 completed experiments: 6 scenarios, 2 PCA modes, 12 sample sizes, 10 seeds.
+1437 of them are analysed: three runs received a duplicate of the preceding experiment's
+result and are excluded via `EXCLUDED_EXPERIMENTS` in `analyze_benchmark.py` (see
+`../MESSMETHODIK_ZEITSYNCHRONISATION.md`, section 5.1). Their configurations use 9 seeds.
 
 Final generated export sets:
 

@@ -118,7 +118,8 @@ Experiment aus den ohnehin archivierten Dateien:
 4. **Zuordnung:** genau eine Ressourcen-CSV, `run_id` konsistent zum Ergebnis.
 5. **Uhrenfreie Offset-Schätzung:** Kreuzkorrelation der Pi-CPU-Last mit der
    PC-Leistungskurve; der Korrelations-Peak liefert den Restversatz δ̂ direkt
-   aus den Signalen.
+   aus den Signalen. **Auf den realen Messdaten nicht aussagekräftig** — siehe
+   Abschnitt 5.1.
 6. **Sensitivität:** Verschiebung des Fensters um ±2 s und Neuberechnung der
    Energie beziffert den maximal möglichen Randeffekt pro Lauf.
 
@@ -126,15 +127,85 @@ Validierung des Audits an synthetischen Testdaten: Ein künstlich eingebauter
 Uhrenversatz von +3 s wurde per Kreuzkorrelation auf die Sekunde genau
 erkannt (r = 0,98), ein simulierter NTP-Sprung von 300 s mitten im Lauf
 schlug in vier unabhängigen Checks fehl; ein sauberer Lauf passierte mit
-δ̂ = 0,0 s und einer Fenster-Sensitivität von 0,5 %.
+δ̂ = 0,0 s und einer Fenster-Sensitivität von 0,5 %. **Diese Zahlen stammen
+ausschließlich aus dem synthetischen Testfall und sind nicht auf die reale
+Messkampagne übertragbar** (Abschnitt 5.1).
 
-**Die Validitätsaussage ist damit bedingt und prüfbar:** *Sofern* das Audit
-über alle Experimente ohne FAIL läuft, ist belegt — nicht angenommen —, dass
+## 5.1 Ergebnis des Audits über die reale Messkampagne (1440 Läufe)
+
+Ausgeführt am 2026-07-15 über `results/`; Rohergebnis pro Lauf in
+`results/analysis/power_coverage_audit.csv`. **258 PASS, 1179 WARN, 3 FAIL.**
+Die WARN-Fälle sind fast ausschließlich die Punkte 5 und 6 und **keine
+Messfehler** — siehe unten.
+
+**Belastbar (Punkte 1–4):**
+- Kein einziger Lauf ohne vollständige Fensterüberdeckung: Vormargin ≥ 3,56 s,
+  Nachmargin ≥ 0,08 s, ≥ 96,5 % der erwarteten Leistungs-Samples im Fenster.
+- Keine Uhrensprünge: größte Pi-Sampling-Lücke 0,73 s (nominal 0,2 s), alle
+  Zeitstempel monoton.
+- **Kausale Schranke: bei allen 1437 gültigen Läufen enthält das Intervall die
+  Null.** Der Schnitt über alle Läufe ergibt δ ∈ [−0,19 s, +3,73 s] — ohne
+  jedes Vertrauen in NTP. Das ist die tragende Aussage dieses Dokuments.
+
+**Nicht belastbar (Punkt 5 — Kreuzkorrelation):** Die CPU-Last ist während der
+Inferenz nahezu gesättigt und damit strukturarm; es gibt fast nichts zu
+korrelieren. Der Peak liegt im Median bei r = 0,40, nur 1 von 1437 Läufen
+erreicht r > 0,7, und die geschätzten Versätze streuen mit σ = 9,0 s um einen
+Median von +0,40 s bei annähernd 50/50 verteilten Vorzeichen. Vier Läufe
+laufen exakt gegen die ±30-s-Suchgrenze. Das ist **Schätzrauschen, kein
+Uhrenversatz**. Die vom Skript ausgegebene Zeile „residual clock offset:
+median 1,60 s" darf **nicht** zitiert werden.
+
+**Sensitivität (Punkt 6) — real deutlich über „sub-Prozent":** Median 1,66 %,
+p95 4,52 %, Maximum 5,42 %; 55 % der Läufe liegen über 1 %. Das ist echte
+Physik und kein Artefakt: Der Randeffekt skaliert mit 1/T, wie die Formel in
+Abschnitt 3 vorhersagt (Korrelation Fensterlänge ↔ Sensitivität = −0,95).
+
+**Die Trennlinie ist der Datensatz, nicht der Sample-Count.** Die Fensterlänge
+ergibt sich aus 200 Testbildern × Zeit/Bild und ist innerhalb eines Datensatzes
+praktisch konstant — CIFAR-10 liegt bei 49,4 s für *jedes* `spc` von 2 bis 100,
+Imagenette bei 116,1 s. Entsprechend:
+- **CIFAR-10** (Fenster ~49 s): Median 3,67 % — betrifft alle Konfigurationen gleichermaßen.
+- **Imagenette** (Fenster ~116 s): Median 0,63 %.
+
+**Verstärkung bei `net_energy_per_image_J`:** Die Netto-Größe zieht die
+Idle-Baseline ab und beträgt damit nur ~23 % (CIFAR-10) bzw. ~45 % (Imagenette)
+der Bruttoenergie. Eine Fensterverschiebung ändert die Energie um einen
+*absoluten* Betrag ΔE, die Fensterdauer bleibt gleich — der relative Fehler auf
+die Netto-Größe ist daher um den Faktor Brutto/Netto verstärkt (≈ 4,3×
+CIFAR-10, ≈ 2,2× Imagenette).
+
+Wichtig für die Einordnung: Die ±2 s sind ein **Was-wäre-wenn**, keine
+Fehlerangabe. Sie beziffern den Fehler, *falls* der Versatz 2 s betrüge; die
+kausale Schranke oben begrenzt ihn auf ≤ 3,73 s und ist mit 0 verträglich.
+Bei realistischem NTP-Versatz (Millisekunden) ist der Effekt vernachlässigbar.
+Relative Vergleiche zwischen Konfigurationen sind ohnehin unberührt
+(Common-Mode) — betroffen sind ausschließlich Absolutwerte, in erster Linie
+`net_energy_per_image_J` und `net_avg_power_W`.
+
+**3 FAIL — und zwar kein Uhrenproblem.** `exp_004_pca95var_spc2_s789`,
+`exp_039_pca95var_spc20_s1618` und `exp_125_nopca_spc2_s1337` haben je eine
+**byte-identische Kopie des Ergebnisses des Vorgänger-Experiments** erhalten
+(gleiche `run_id`, per md5 verifiziert). Der Nachweis läuft auf **einer**
+Uhr und braucht keine Synchronisation: Der PC sah den kompletten Zyklus
+Deploy→Ergebnis in 4,3–4,9 s, während das zurückgelieferte Ressourcen-Log
+eine 49–114 s lange Inferenz beschreibt. Es handelt sich also um eine
+fehlerhafte **Ergebnis-Zuordnung** (stale Message trotz `DeliverPolicy.NEW`),
+nicht um Uhrendrift. Die Läufe sind in `analysis/analyze_benchmark.py` über
+`EXCLUDED_EXPERIMENTS` aus allen Aggregaten entfernt; die betroffenen Zellen
+behalten 9 von 10 Seeds. Es hat sich nicht fortgepflanzt — der jeweils
+nächste Lauf ist sauber.
+
+**Die Validitätsaussage ist damit bedingt und prüfbar.** Nach dem realen
+Audit-Lauf (Abschnitt 5.1) ist belegt — nicht angenommen —, dass
 (a) jeder Trace sein Fenster mit Reserve überdeckt, (b) kein Uhrensprung
-auftrat, (c) der Restversatz klein gegen die Fensterlänge war und (d) selbst
-eine Fensterverschiebung um ±2 s die Energiewerte nur im ausgewiesenen
-Sub-Prozent-Bereich ändern würde. Schlägt das Audit für einzelne Läufe fehl,
-sind genau diese Läufe zu verwerfen oder zu wiederholen.
+auftrat und (c) der Restversatz kausal auf δ ∈ [−0,19 s, +3,73 s] beschränkt
+und mit 0 verträglich ist. Punkt (d) ist gegenüber der ursprünglichen
+Fassung zu korrigieren: Eine Fensterverschiebung um ±2 s ändert die Energie
+**nicht** durchgängig im Sub-Prozent-Bereich, sondern um median 1,66 % und
+maximal 5,42 %, konzentriert auf die kurzen Läufe (1/T-Effekt). Für die drei
+Läufe, die das Audit als FAIL markiert, gilt unverändert: verwerfen oder
+wiederholen — sie sind verworfen (Abschnitt 5.1).
 
 ## 6. Grenzen und Ausblick
 

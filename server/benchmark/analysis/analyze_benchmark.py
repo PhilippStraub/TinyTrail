@@ -56,6 +56,20 @@ CLASSIFIER_LABELS = {
     "KMeansPrototypeClassifier": "KMeans",
 }
 
+# Runs excluded from every aggregate: each received a duplicate of the *preceding*
+# experiment's result ZIP (byte-identical merged_analysis, same run_id), so the row
+# carries the wrong seed's accuracy and latency. Proven on the PC clock alone — the
+# whole deploy→result cycle took ~4-5 s while the returned resource log spans a
+# 49-114 s inference — so this is a result-attribution failure, not a clock-sync
+# artifact. Their energy is already absent (no power.inference_window). Detected by
+# analysis/verify_power_coverage.py (check 2, causal containment); per-run evidence in
+# results/analysis/power_coverage_audit.csv. Affected cells keep 9 of 10 seeds.
+EXCLUDED_EXPERIMENTS = {
+    "scenario_cifar10_knn_benchmark/exp_004_pca95var_spc2_s789",
+    "scenario_cifar10_knn_benchmark/exp_039_pca95var_spc20_s1618",
+    "scenario_imagenette_nearest_centroid/exp_125_nopca_spc2_s1337",
+}
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Level 1 — extract one tidy row per experiment
@@ -97,10 +111,25 @@ def _infer_dataset_name(scenario_name: Optional[str]) -> Optional[str]:
     return None
 
 
+def _is_excluded(exp_dir: Path) -> bool:
+    """Match an experiment against EXCLUDED_EXPERIMENTS as '<scenario>/<exp_name>'."""
+    return f"{exp_dir.parent.name}/{exp_dir.name}" in EXCLUDED_EXPERIMENTS
+
+
 def _discover_experiment_dirs(results_dir: Path) -> List[Path]:
-    """Find completed-run candidates in flat and scenario-separated result layouts."""
+    """Find completed-run candidates in flat and scenario-separated result layouts.
+
+    Drops EXCLUDED_EXPERIMENTS, so every downstream aggregate, figure and report
+    rests on attributable runs only.
+    """
     candidates = list(results_dir.glob("exp_*")) + list(results_dir.glob("*/exp_*"))
-    return sorted({p.resolve() for p in candidates if p.is_dir()})
+    dirs = sorted({p.resolve() for p in candidates if p.is_dir()})
+    kept = [p for p in dirs if not _is_excluded(p)]
+    dropped = len(dirs) - len(kept)
+    if dropped:
+        print(f"[analysis] excluded {dropped} misattributed run(s) "
+              f"(see EXCLUDED_EXPERIMENTS)")
+    return kept
 
 
 def _read_label_count(meta: Dict, df: pd.DataFrame) -> int:

@@ -5,8 +5,8 @@
 %% them by basename when the document is compiled from the Ausarbeitung folder.
 \graphicspath{%
   {../../}%
-  {../../server/benchmark/analysis/exports/cifar10/analysis_20260713_083731/figures/}%
-  {../../server/benchmark/analysis/exports/imagenet/analysis_20260713_083731/figures/}%
+  {../../server/benchmark/analysis/exports/cifar10/analysis_20260715_173358/figures/}%
+  {../../server/benchmark/analysis/exports/imagenet/analysis_20260715_173437/figures/}%
 }
 \AtBeginDocument{%
   \providecommand\BibTeX{{%
@@ -46,7 +46,7 @@
 TinyML deployments on remotely operated embedded systems must keep models accurate under concept drift while balancing strict constraints on memory, latency, and energy consumption.
 This work analyzes the inference pipeline of the TinyMLOps framework and evaluates distance-based classifiers as the groundwork for future on-device learning, investigating how classifier choice, reference-sample size, and Principal Component Analysis (PCA) affect the accuracy--efficiency trade-off.
 We compare KMeans, k-nearest neighbors (KNN), and Nearest Centroid classifiers on CIFAR-10 and Imagenette using no-PCA and \texttt{pca95var} variants.
-The benchmark covers 2 to 100 stored reference samples per class, ten seeds per configuration, and resource measurements collected on a Raspberry Pi Zero 2W with external power monitoring, for a total of 1440 completed deployments.
+The benchmark covers 2 to 100 stored reference samples per class, ten seeds per configuration, and resource measurements collected on a Raspberry Pi Zero 2W with external power monitoring, for a total of 1440 completed deployments, of which 1437 pass a post-hoc measurement audit and enter the analysis.
 
 The results show that most configurations reach 95\% of their maximum observed mean accuracy with only 10 reference samples per class.
 On CIFAR-10, Nearest Centroid achieves the highest observed mean accuracy of 0.8095 with PCA, while remaining a compact classifier.
@@ -150,7 +150,7 @@ On the client, the \emph{Deployment Executer} (1) receives a packaged deployment
 The \emph{Library for Drift Detection} (2) monitors the running pipeline, and the \emph{Metric and Drift Transmitter} (3) sends the collected metrics and drift events back through the middleware.
 On the server, the \emph{Analytical Data Processor} (4) aggregates the returned measurements, the \emph{Retrainer} (5) can produce an updated model configuration, and the \emph{Deployment Packager} (6) assembles a new deployment package that can be sent back to the device.
 For this study, the relevant part is the on-device inference pipeline inside the \emph{Deployment} component and the automation that lets many configurations be deployed and measured under comparable conditions.
-All 1440 planned deployments of this study (see Section~\ref{sec:design}) completed successfully through this pipeline.
+All 1440 planned deployments of this study (see Section~\ref{sec:design}) completed successfully through this pipeline. Three of them returned a duplicate of the preceding experiment's result and are excluded from all aggregates, leaving 1437 analyzed runs (Section~\ref{sec:threats}).
 
 \begin{figure}[t]
   \centering
@@ -212,7 +212,7 @@ Concretely, the retained dimensionality is chosen as the smallest number of prin
 This threshold is used as a conservative, reproducible operating point: it preserves most of the measured feature-space variance while still reducing the deployed reference vectors, and its practical effect is evaluated directly against the corresponding \texttt{nopca} baseline.
 The number of stored reference samples per class is swept over 12 values: 2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, and 100.
 Each configuration is repeated with ten initialization and test-order seeds: 42, 123, 456, 789, 1337, 1618, 2021, 2718, 3141, and 9876.
-This results in 720 completed runs per dataset family, because each dataset combines three classifiers, two PCA settings, 12 sample-count settings, and ten seeds. Across both dataset families, 1440 runs were completed.
+This results in 720 completed runs per dataset family, because each dataset combines three classifiers, two PCA settings, 12 sample-count settings, and ten seeds. Across both dataset families, 1440 runs were completed, of which 1437 are analyzed after the audit described in Section~\ref{sec:threats} excluded three misattributed runs.
 
 The classifier configurations are fixed across the sweep.
 KNN uses $k=3$ with a Euclidean distance metric and inverse-distance weighting (power 3.0), KMeans uses three prototypes per class, and Nearest Centroid stores one centroid per class.
@@ -297,7 +297,7 @@ The runtime artifact stores three \texttt{float32} arrays: the scaler mean, the 
 All resource measurements are collected on a Raspberry Pi Zero 2W.
 The device is powered by a Voltcraft DSP-3005 external power supply at 5~V, and the external power log is integrated per experiment to obtain the energy consumed during that run.
 Each experiment corresponds to a bounded on-device measurement window that covers the classification of that run's 200 test images and over which the resource and power logs are recorded.
-This window lasted about 49~s per run on CIFAR-10 and about 116~s on Imagenette (overall range roughly 49--124~s across the 1440 deployments), while the mean per-image inference latency was about 45~ms on CIFAR-10 and 356~ms on Imagenette, with the remaining per-image time spent on image loading and preprocessing.
+This window lasted about 49~s per run on CIFAR-10 and about 116~s on Imagenette (overall range roughly 49--124~s across the analyzed deployments), while the mean per-image inference latency was about 45~ms on CIFAR-10 and 356~ms on Imagenette, with the remaining per-image time spent on image loading and preprocessing.
 The window length is therefore set almost entirely by the shared feature extraction and preprocessing rather than by the lightweight distance-based classifier, so it barely varies across classifiers or sample-count settings but differs clearly between the two datasets.
 For each deployed configuration, the pipeline records classification accuracy, per-image latency, CPU usage, and resident-set-size (RSS) memory from the merged benchmark and resource logs written on the device.
 In addition, it records the analytical classifier state size and reference-store size, so that memory is represented both as observed process memory and as model-specific storage demand.
@@ -307,7 +307,7 @@ All energy measurements were taken under single-threaded BLAS/OpenMP execution, 
 
 \subsection{Data Analysis Procedures}
 \label{sec:analysis}
-For every configuration, the ten seeds are summarized by their mean, so the reported mean accuracy and mean resource metrics are averages over the ten seeds.
+For every configuration, the ten seeds are summarized by their mean, so the reported mean accuracy and mean resource metrics are averages over the ten seeds. Three configurations are averaged over nine seeds instead, because the audit in Section~\ref{sec:threats} excluded one misattributed run each.
 Dispersion across seeds is reported as the standard deviation and as the 95\% confidence interval (CI) of the mean.
 Unless stated otherwise, the reported ``95\% CI'' value is the half-width of the 95\% confidence interval of the seed mean, computed with the t-distribution and $n-1$ degrees of freedom. A reported value of, for example, 0.0152 therefore means the seed mean lies within $\pm$0.0152 with 95\% confidence.
 The dependent variables capture the resulting accuracy--efficiency trade-off: classification accuracy, latency, CPU usage, RSS memory, analytical classifier/reference-store size, fixed feature-processor overhead, net average power, and net energy per image.
@@ -611,12 +611,21 @@ The current benchmark uses CIFAR-10 and Imagenette with ten seeds and exactly 20
 Additional datasets, different numbers of classes, and task-specific embedded use cases would make it easier to determine whether the observed sample-count knees and PCA behavior generalize beyond the evaluated image-classification scenarios.
 
 \subsection{Threat to Validity}
+\label{sec:threats}
 \paragraph{Internal validity.}
 Internal validity may be affected by measurement noise on the target device.
 Although the experiments were repeated across ten seeds and power measurements were collected with an external power supply, background activity on the Raspberry Pi Zero 2W, thermal effects, and operating-system scheduling can still influence latency, CPU, RSS memory, and energy measurements.
 Energy was measured under single-threaded BLAS/OpenMP execution. For CIFAR-10 the small projection was single-threaded inherently, and for Imagenette the larger projection was explicitly pinned to a single BLAS/OpenMP thread so that multi-threaded matrix operations in the PCA projection do not distort the energy comparison.
 The study reduces the remaining risk by aggregating results across seeds and by reporting confidence intervals, but it cannot fully eliminate device-level noise.
 Another internal threat is that PCA is measured as part of the deployed inference pipeline. Therefore, the reported PCA effect includes both dimensionality reduction and classification effects rather than isolating the classifier alone.
+
+A further internal threat concerns the clock synchronization between the two hosts involved in the energy measurement. Power is sampled by an external meter on the benchmark PC and timestamped with the PC's clock, whereas the inference window is delimited by the resource log written on the Raspberry Pi with the Pi's clock. Both machines keep their clocks through the default NTP service of their operating system, but no explicit synchronization step is part of the measurement procedure. The energy attributed to the inference window therefore depends on the two clocks agreeing, which is an assumption rather than a measured property.
+
+Rather than relying on that assumption, every recorded run was verified after the fact against its archived traces, in two ways that do not require trusting NTP. First, the deployment cannot reach the device before the PC has sent it, and the device cannot still be computing after the PC has received the result. Both events are timed on the PC clock alone, so they bound how far the two clocks can be apart; across all analyzed runs this bound is consistent with no offset. Second, and more directly, the power trace itself marks the boundary: the device loads the model and the reference store before inference, which draws visibly more power than inference, and returns to idle once the result has been transmitted. Averaging the power of all runs of a dataset family relative to their own window start resolves this transition to the sampling period. The transition coincides with the start of the inference window to within 0.63~s, so a clock offset of the order of seconds is excluded by the measurements themselves. The audit further confirms that every power trace covers its inference window with margin on both sides and that no clock jumps occurred during any run.
+
+The residual offset is therefore below one second, and its effect on the reported energy is correspondingly small. Two properties bound it further. The effect is a boundary effect, so it scales inversely with window length and is more pronounced on CIFAR-10 than on Imagenette, whose inference window is more than twice as long; it does not depend on the number of reference samples, because window length is determined by the fixed number of test images rather than by the size of the reference store. In addition, the study's central claims are relative comparisons between classifiers and PCA settings measured on an identical setup, where any offset that is constant across experiments cancels as a common-mode error. The reported energy values are therefore sound; a hypothetical multi-second offset, which the measurements exclude, would have affected only absolute energy on the shorter CIFAR-10 runs, and not the comparisons on which the conclusions rest.
+
+The same check also revealed that three runs received a duplicate of the preceding experiment's result, so their recorded accuracy and latency belong to the wrong seed. This is unrelated to clock synchronization: the PC observed those deploy-to-result cycles within about five seconds, which is far too short for the inference they report. The three runs are excluded from every aggregate, figure, and table in this paper, and the three affected configurations are averaged over nine seeds instead of ten. All reported knees and their accuracies are unchanged by this exclusion.
 
 \paragraph{Construct validity.}
 Construct validity concerns whether the collected metrics capture the intended accuracy--efficiency trade-off.
@@ -629,7 +638,8 @@ The chosen 95\% and 99\% accuracy knees provide clear operational definitions of
 
 \paragraph{Conclusion validity.}
 Conclusion validity may be affected by the finite number of repeated runs and by the selected benchmark grid.
-Each configuration is evaluated across ten seeds, which supports comparative analysis, but small differences such as the Imagenette PCA accuracy changes remain close to the scale of experimental variation, consistent with the non-significant Wilcoxon results for those pairs.
+Each configuration is evaluated across ten seeds --- nine for the three configurations affected by the excluded runs --- which supports comparative analysis, but small differences such as the Imagenette PCA accuracy changes remain close to the scale of experimental variation, consistent with the non-significant Wilcoxon results for those pairs.
+Seed-to-seed variation is largest at the smallest sample counts, where the choice of the few stored reference samples dominates the outcome, so the reported means at the low end of the sweep carry a noticeably wider spread than at higher sample counts.
 The study reports paired PCA comparisons where matched pairs exist, yet it does not claim that every small numeric difference is practically relevant.
 The sample-count sweep also uses discrete values between 2 and 100 samples per class, so the exact sweet spot may lie between two evaluated sample counts.
 
@@ -643,7 +653,7 @@ Additional datasets, class counts, hardware platforms, and real deployment workl
 \section{Conclusion}
 \label{sec:conclusion}
 This work analyzed the inference pipeline of the TinyMLOps framework and evaluated distance-based classifier configurations for its server-retrained, remotely deployed TinyML pipeline.
-The study compared KMeans, KNN, and Nearest Centroid on CIFAR-10 and Imagenette using both no-PCA and \texttt{pca95var} variants, a reference-sample sweep from 2 to 100 samples per class, and ten seeds per configuration, for a total of 1440 completed deployments.
+The study compared KMeans, KNN, and Nearest Centroid on CIFAR-10 and Imagenette using both no-PCA and \texttt{pca95var} variants, a reference-sample sweep from 2 to 100 samples per class, and ten seeds per configuration, for a total of 1440 completed deployments, of which 1437 entered the analysis.
 The evaluation considered prediction accuracy together with resource-related measurements such as latency, CPU usage, memory consumption, net energy per image, and the classifier state/reference-store footprint.
 
 The results show that a small number of reference samples is sufficient to reach most of the attainable accuracy.
