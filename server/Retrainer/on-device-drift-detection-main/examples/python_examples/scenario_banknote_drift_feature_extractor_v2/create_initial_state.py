@@ -15,7 +15,7 @@ import numpy as np
 from typing import Optional
 
 # Importiere die Hilfsfunktionen aus examples/utils/preprocessors.py
-from examples.python_examples.utils.preprocessors import resize_image
+from examples.utils.preprocessors import resize_image
 
 try:
     import tensorflow as tf

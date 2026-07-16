@@ -1,0 +1,44 @@
+2026-07-01 19:21:16,657 - drift_detection - INFO - Logging initialized at level INFO
+2026-07-01 19:21:16,657 - drift_detection - INFO - Log file: logs/drift_detection_20260701_192116.log
+2026-07-01 19:21:16,664 - drift_detection - INFO - Starting folder-based On-Device Drift Detection
+2026-07-01 19:21:16,664 - drift_detection - INFO - Run ID: 20260701_192116
+2026-07-01 19:21:16,664 - drift_detection - INFO - Device ID: hans
+2026-07-01 19:21:16,690 - drift_detection - INFO - Shuffled 200 input images with seed=789
+2026-07-01 19:21:16,691 - drift_detection - INFO - Discovered 200 input images in ./input_images
+2026-07-01 19:21:16,691 - drift_detection - INFO - Loaded 10 labels: ['cassette_player', 'chain_saw', 'church', 'english_springer', 'french_horn', 'garbage_truck', 'gas_pump', 'golf_ball', 'parachute', 'tench']
+2026-07-01 19:21:17,934 - drift_detection - INFO - KNN initialized with 300 samples
+2026-07-01 19:21:17,935 - drift_detection - INFO - Loaded reference stats: mean=21.27496799468994, std=2.734887011530804, sample_count=300
+2026-07-01 19:21:17,935 - tinylcm_python.drift_monitor - INFO - Using pre-computed reference mean: 21.27496799468994
+2026-07-01 19:21:17,936 - drift_detection - INFO - Initialized 1 drift detector(s)
+2026-07-01 19:21:17,954 - drift_detection - INFO - Resource CSV logging started: logs/resource_usage_20260701_192116.csv at 5.0 Hz
+2026-07-01 19:21:34,745 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Entering drift state (up). cum_up=12.47 > threshold 9.91
+2026-07-01 19:21:34,746 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: agg_distance=25.67, reference_mean=21.27, err=4.40, cum_up=12.47, cum_down=0.00
+2026-07-01 19:21:34,746 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Current prediction='chain_saw', confidence=0.40
+2026-07-01 19:21:34,746 - tinylcm_python.drift_monitor - WARNING - KNNDistanceMonitor: DRIFT DETECTED by Page-Hinkley test! PH value: 12.47 > threshold: 9.91, avg_distance: 25.67, reference: 21.27, ratio: 1.21x
+2026-07-01 19:21:34,747 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Drift detected! Agg distance=25.6707, Reference=21.2750, Prediction=chain_saw, PH value=12.4671
+2026-07-01 19:21:35,351 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Reset due to high-confidence (1.00) known class 'cassette_player'
+2026-07-01 19:22:05,745 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Entering drift state (up). cum_up=11.24 > threshold 9.91
+2026-07-01 19:22:05,745 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: agg_distance=24.92, reference_mean=21.27, err=3.64, cum_up=11.24, cum_down=0.00
+2026-07-01 19:22:05,746 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Current prediction='gas_pump', confidence=1.00
+2026-07-01 19:22:05,746 - tinylcm_python.drift_monitor - WARNING - KNNDistanceMonitor: DRIFT DETECTED by Page-Hinkley test! PH value: 11.24 > threshold: 9.91, avg_distance: 24.92, reference: 21.27, ratio: 1.17x
+2026-07-01 19:22:05,746 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Drift detected! Agg distance=24.9173, Reference=21.2750, Prediction=gas_pump, PH value=11.2374
+2026-07-01 19:22:06,331 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Reset due to high-confidence (1.00) known class 'garbage_truck'
+2026-07-01 19:22:28,572 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Entering drift state (up). cum_up=10.64 > threshold 9.91
+2026-07-01 19:22:28,572 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: agg_distance=27.82, reference_mean=21.08, err=6.74, cum_up=10.64, cum_down=0.00
+2026-07-01 19:22:28,572 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Current prediction='french_horn', confidence=0.40
+2026-07-01 19:22:28,573 - tinylcm_python.drift_monitor - WARNING - KNNDistanceMonitor: DRIFT DETECTED by Page-Hinkley test! PH value: 10.64 > threshold: 9.91, avg_distance: 27.82, reference: 21.08, ratio: 1.32x
+2026-07-01 19:22:28,573 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Drift detected! Agg distance=27.8235, Reference=21.0848, Prediction=french_horn, PH value=10.6367
+2026-07-01 19:22:29,151 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Reset due to high-confidence (1.00) known class 'parachute'
+2026-07-01 19:22:58,458 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Entering drift state (down). cum_down=12.20 > threshold 9.91
+2026-07-01 19:22:58,459 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: agg_distance=15.62, reference_mean=21.08, err=-5.47, cum_up=0.00, cum_down=12.20
+2026-07-01 19:22:58,459 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Current prediction='golf_ball', confidence=1.00
+2026-07-01 19:22:58,459 - tinylcm_python.drift_monitor - WARNING - KNNDistanceMonitor: DRIFT DETECTED by Page-Hinkley test! PH value: 12.20 > threshold: 9.91, avg_distance: 15.62, reference: 21.08, ratio: 0.74x
+2026-07-01 19:22:58,460 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Drift detected! Agg distance=15.6152, Reference=21.0848, Prediction=golf_ball, PH value=12.1967
+2026-07-01 19:22:59,045 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Reset due to high-confidence (1.00) known class 'garbage_truck'
+2026-07-01 19:23:15,083 - drift_detection - INFO - No more input images. Stopping.
+2026-07-01 19:23:15,231 - drift_detection - INFO - Resource CSV logging stopped
+2026-07-01 19:23:15,361 - drift_detection - INFO - Merged analysis created: logs/merged_analysis_20260701_192116.csv
+2026-07-01 19:23:15,361 - drift_detection - INFO - Final accuracy: 0.9750 based on 200/200 labeled samples
+2026-07-01 19:23:15,366 - drift_detection - INFO - Final performance summary: {'run_id': '20260701_192116', 'total_inferences': 200, 'total_drift_events': 0, 'total_drifted_inferences': 4, 'avg_latency_ms': 360.06093740463257, 'max_latency_ms': 386.1079216003418, 'min_latency_ms': 353.0757427215576, 'avg_confidence': 0.9620000019669532, 'runtime_seconds': 118.7102997303009, 'labeled_samples': 200, 'accuracy': 0.975}
+2026-07-01 19:23:15,366 - drift_detection - INFO - Final merged analysis file: logs/merged_analysis_20260701_192116.csv
+2026-07-01 19:23:15,367 - drift_detection - INFO - Shutdown complete

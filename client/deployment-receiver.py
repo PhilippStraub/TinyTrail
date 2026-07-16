@@ -31,9 +31,9 @@ BASE_DIR = Path.home() / "tinysphere-deployment-pipeline"
 DEPLOYMENTS_DIR = BASE_DIR / "deployments"
 CONFIG_DIR = BASE_DIR / "config"
 DELETE_OLD = True
-NATS_URL = "nats://192.168.188.41:4222"  # JetStream Broker
+NATS_URL = "nats://192.168.178.62:4222"  # JetStream Broker
 STREAM_NAME = "MODELS"
-MAX_MSG_SIZE = 8 * 1024 * 1024  # 8 MB
+MAX_MSG_SIZE = 25 * 1024 * 1024  # 25 MB
 SUBJECT_PREFIX = "models.update"
 
 
@@ -88,6 +88,7 @@ class NetworkMonitor:
 
 
 monitor = NetworkMonitor()
+deployment_chunks = {}
 
 
 # Deployment Manager processes incoming deployments
@@ -170,13 +171,10 @@ def initialize():
         return None
 
 
-# Handles NATS Jetstream messages
-async def message_handler(msg, deployment_manager):
-    start_time = time.time()
-    logging.info("New deployment received via NATS JetStream.")
+async def process_deployment_zip(zip_data, deployment_manager, msg, start_time, already_acked=False):
     await deployment_manager.stop_current()
 
-    zip_bytes = io.BytesIO(msg.data)
+    zip_bytes = io.BytesIO(zip_data)
     deployment_name = f"deployment_{uuid.uuid4().hex[:8]}"
     deployment_path = DEPLOYMENTS_DIR / deployment_name
     os.makedirs(deployment_path, exist_ok=True)
@@ -192,9 +190,69 @@ async def message_handler(msg, deployment_manager):
     deployment_manager.start_new(str(deployment_path))
 
     # Once the deployment has been successfully processed (ZIP), ack is send to NATS manually
-    await msg.ack()
+    if not already_acked:
+        await msg.ack()
     end_time = time.time()
     monitor.record_message(msg, start_time, end_time)
+
+
+# Handles NATS Jetstream messages
+async def message_handler(msg, deployment_manager):
+    start_time = time.time()
+    headers = msg.headers or {}
+
+    if headers.get("X-Deployment-Chunked") == "1":
+        deployment_id = headers.get("X-Deployment-Id")
+        try:
+            chunk_index = int(headers.get("X-Chunk-Index", "-1"))
+            chunk_count = int(headers.get("X-Chunk-Count", "0"))
+        except ValueError:
+            logging.error("Invalid chunk metadata - message will not be acknowledged.")
+            return
+
+        if not deployment_id or chunk_index < 0 or chunk_count <= 0:
+            logging.error("Incomplete chunk metadata - message will not be acknowledged.")
+            return
+
+        buffer = deployment_chunks.setdefault(
+            deployment_id,
+            {
+                "chunks": {},
+                "count": chunk_count,
+                "first_seen": start_time,
+                "zip_name": headers.get("X-Zip-Name", "deployment.zip"),
+                "zip_size": headers.get("X-Zip-Size", "unknown"),
+            },
+        )
+        buffer["chunks"][chunk_index] = msg.data
+        await msg.ack()
+
+        received = len(buffer["chunks"])
+        logging.info(
+            f"Received deployment chunk {chunk_index + 1}/{chunk_count} "
+            f"for {buffer['zip_name']} ({received}/{chunk_count} buffered)."
+        )
+
+        if received < chunk_count:
+            return
+
+        try:
+            zip_data = b"".join(buffer["chunks"][i] for i in range(chunk_count))
+        except KeyError as e:
+            logging.error(f"Deployment chunks incomplete despite count match: missing {e}")
+            return
+        finally:
+            deployment_chunks.pop(deployment_id, None)
+
+        logging.info(
+            f"Complete chunked deployment received via NATS JetStream: "
+            f"{buffer['zip_name']} ({len(zip_data)} bytes)."
+        )
+        await process_deployment_zip(zip_data, deployment_manager, msg, buffer["first_seen"], already_acked=True)
+        return
+
+    logging.info("New deployment received via NATS JetStream.")
+    await process_deployment_zip(msg.data, deployment_manager, msg, start_time)
 
 # Saves received deployments 
 def safe_extract(zip_ref, target_dir):
@@ -268,7 +326,8 @@ async def start_consumer(device_id, deployment_manager):
         await nc.close()
         return
 
-    stream_names = [s.config.name for s in streams]
+    stream_by_name = {s.config.name: s for s in streams}
+    stream_names = list(stream_by_name)
 
     if STREAM_NAME not in stream_names:
         logging.info(f"Stream '{STREAM_NAME}' does not exist. Creating...")
@@ -288,6 +347,15 @@ async def start_consumer(device_id, deployment_manager):
             return
     else:
         logging.info(f"Stream '{STREAM_NAME}' exists.")
+        stream_info = stream_by_name[STREAM_NAME]
+        if stream_info.config.max_msg_size != MAX_MSG_SIZE:
+            logging.info(
+                f"Updating stream '{STREAM_NAME}' max_msg_size "
+                f"from {stream_info.config.max_msg_size} to {MAX_MSG_SIZE}..."
+            )
+            stream_info.config.max_msg_size = MAX_MSG_SIZE
+            await js.update_stream(stream_info.config)
+            logging.info(f"Stream '{STREAM_NAME}' updated successfully.")
 
     durable_name = f"{device_id}_worker"
     consumer_config = ConsumerConfig(
@@ -313,7 +381,21 @@ async def start_consumer(device_id, deployment_manager):
             logging.info("Performing scheduled log transmission...")
             await log_transmitter.transmit_logs(deployment_manager.current_path)
 
+    # Watch for natural process completion and transmit logs immediately
+    async def watch_process_completion():
+        while True:
+            await asyncio.sleep(10)
+            proc = deployment_manager.current_process
+            path = deployment_manager.current_path
+            if proc is not None and not proc.is_alive() and path is not None:
+                logging.info("[ProcessWatcher] Inference process finished. Transmitting logs immediately...")
+                deployment_manager.current_process = None
+                deployment_manager.current_path = None
+                await log_transmitter.transmit_logs(path)
+                logging.info("[ProcessWatcher] Log transmission complete.")
+
     transmission_task = asyncio.create_task(periodic_log_transmission())
+    completion_watcher_task = asyncio.create_task(watch_process_completion())
 
     try:
         while True:

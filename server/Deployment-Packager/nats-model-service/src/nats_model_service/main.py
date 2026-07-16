@@ -1,6 +1,8 @@
 import asyncio
+import math
 import os
 import sys
+import uuid
 import zipfile
 from pathlib import Path
 from nats.aio.client import Client as NATS
@@ -14,10 +16,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 RAW_DIR = PROJECT_ROOT / "raw_data"
 ZIP_DIR = PROJECT_ROOT / "zipped_data"
 
-# NATS Config
-NATS_URL = "nats://localhost:4222"
+# NATS Config — override with NATS_URL env var (set by benchmark pipeline)
+NATS_URL = os.environ.get("NATS_URL", "nats://localhost:4222")
 STREAM_NAME = "MODELS"
-MAX_MSG_SIZE = 8 * 1024 * 1024  # 8 MB
+MAX_MSG_SIZE = 25 * 1024 * 1024  # 25 MB
+CHUNK_SIZE = int(os.environ.get("NATS_MODEL_CHUNK_SIZE", str(750 * 1024)))
+SINGLE_MESSAGE_LIMIT = int(os.environ.get("NATS_MODEL_SINGLE_MESSAGE_LIMIT", str(MAX_MSG_SIZE - 64 * 1024)))
 
 # DEVICE Config
 DEVICE_ID = "my_device_01"
@@ -38,7 +42,8 @@ async def ensure_stream(js):
         print(f"[ERROR] Unexpected error while fetching streams: {e}")
         return
 
-    stream_names = [s.config.name for s in streams]
+    stream_by_name = {s.config.name: s for s in streams}
+    stream_names = list(stream_by_name)
 
     if STREAM_NAME not in stream_names:
         print(f"[INFO] Stream '{STREAM_NAME}' does not exist. Creating...")
@@ -60,7 +65,15 @@ async def ensure_stream(js):
             print(f"[ERROR] Unexpected error while creating the stream: {e}")
     else:
         print(f"[INFO] Stream '{STREAM_NAME}' already exists.")
-        #await js.delete_stream(STREAM_NAME)
+        stream_info = stream_by_name[STREAM_NAME]
+        if stream_info.config.max_msg_size != MAX_MSG_SIZE:
+            print(
+                f"[INFO] Updating stream '{STREAM_NAME}' max_msg_size "
+                f"from {stream_info.config.max_msg_size} to {MAX_MSG_SIZE}..."
+            )
+            stream_info.config.max_msg_size = MAX_MSG_SIZE
+            await js.update_stream(stream_info.config)
+            print(f"[OK] Stream '{STREAM_NAME}' updated successfully.")
 
 
 async def publish_to_nats(zip_path: Path):
@@ -72,15 +85,43 @@ async def publish_to_nats(zip_path: Path):
     # Ensure stream exists
     await ensure_stream(js)
 
-    # Publish message
     with open(zip_path, "rb") as f:
         data = f.read()
 
-    ack = await js.publish(SUBJECT, data)
     size_bytes = zip_path.stat().st_size
     size_mb = size_bytes / (1024 * 1024)
     size_mb_str = f"{size_mb:.2f}".replace('.', ',')
-    print(f"[OK] ZIP {zip_path.name} published to NATS (seq={ack.seq}) | Size: {size_bytes} bytes = {size_mb_str} MB")
+
+    if len(data) <= SINGLE_MESSAGE_LIMIT:
+        ack = await js.publish(SUBJECT, data)
+        print(f"[OK] ZIP {zip_path.name} published to NATS (seq={ack.seq}) | Size: {size_bytes} bytes = {size_mb_str} MB")
+    else:
+        deployment_id = uuid.uuid4().hex
+        total_chunks = math.ceil(len(data) / CHUNK_SIZE)
+        print(
+            f"[INFO] ZIP {zip_path.name} is {size_mb_str} MB. "
+            f"Publishing in {total_chunks} chunks of up to {CHUNK_SIZE} bytes..."
+        )
+        last_seq = None
+        for idx in range(total_chunks):
+            start = idx * CHUNK_SIZE
+            end = min(start + CHUNK_SIZE, len(data))
+            chunk = data[start:end]
+            ack = await js.publish(
+                SUBJECT,
+                chunk,
+                headers={
+                    "X-Deployment-Chunked": "1",
+                    "X-Deployment-Id": deployment_id,
+                    "X-Chunk-Index": str(idx),
+                    "X-Chunk-Count": str(total_chunks),
+                    "X-Zip-Name": zip_path.name,
+                    "X-Zip-Size": str(size_bytes),
+                },
+            )
+            last_seq = ack.seq
+            print(f"[OK] Chunk {idx + 1}/{total_chunks} published (seq={ack.seq}, bytes={len(chunk)})")
+        print(f"[OK] ZIP {zip_path.name} published to NATS in chunks (last seq={last_seq}) | Size: {size_bytes} bytes = {size_mb_str} MB")
 
     await nc.close()
 
@@ -116,8 +157,19 @@ async def run(folder_name: str):
 
 def app():
     if len(sys.argv) < 2:
-        print(f"[INFO] Using <{folder_name}>")
+        print("Usage:")
+        print("  python main.py <folder_name>")
+        print()
+        print("Example:")
+        print("  python main.py scenario_cifar10_knn_benchmark")
+        print()
+        print("Expected folder:")
+        print(f"  {RAW_DIR}/<folder_name>")
         sys.exit(1)
 
     folder_name = sys.argv[1]
     asyncio.run(run(folder_name))
+
+
+if __name__ == "__main__":
+    app()

@@ -1,0 +1,27 @@
+2026-07-08 12:48:55,517 - drift_detection - INFO - Logging initialized at level INFO
+2026-07-08 12:48:55,517 - drift_detection - INFO - Log file: logs/drift_detection_20260708_124855.log
+2026-07-08 12:48:55,517 - drift_detection - INFO - BLAS thread pin: OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 (expect 1 — keeps PCA single-threaded for clean energy measurement)
+2026-07-08 12:48:55,524 - drift_detection - INFO - Starting folder-based On-Device Drift Detection
+2026-07-08 12:48:55,524 - drift_detection - INFO - Run ID: 20260708_124855
+2026-07-08 12:48:55,525 - drift_detection - INFO - Device ID: hans
+2026-07-08 12:48:55,550 - drift_detection - INFO - Shuffled 200 input images with seed=1618
+2026-07-08 12:48:55,551 - drift_detection - INFO - Discovered 200 input images in ./input_images
+2026-07-08 12:48:55,551 - drift_detection - INFO - Loaded 10 labels: ['cassette_player', 'chain_saw', 'church', 'english_springer', 'french_horn', 'garbage_truck', 'gas_pump', 'golf_ball', 'parachute', 'tench']
+2026-07-08 12:48:55,611 - drift_detection - INFO - StandardScalerPCA transformer initialized
+2026-07-08 12:48:55,639 - drift_detection - INFO - KNN initialized with 10 samples
+2026-07-08 12:48:55,640 - drift_detection - INFO - Loaded reference stats: mean=28.06556453704834, std=1.6445298813872933, sample_count=10
+2026-07-08 12:48:55,640 - tinylcm_python.drift_monitor - INFO - Using pre-computed reference mean: 28.06556453704834
+2026-07-08 12:48:55,641 - drift_detection - INFO - Initialized 1 drift detector(s)
+2026-07-08 12:48:55,643 - drift_detection - INFO - Resource CSV logging started: logs/resource_usage_20260708_124855.csv at 5.0 Hz
+2026-07-08 12:48:56,621 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Entering drift state (up). cum_up=18.64 > threshold 9.91
+2026-07-08 12:48:56,621 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: agg_distance=40.98, reference_mean=28.07, err=12.92, cum_up=18.64, cum_down=0.00
+2026-07-08 12:48:56,621 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Current prediction='gas_pump', confidence=0.14
+2026-07-08 12:48:56,622 - tinylcm_python.drift_monitor - WARNING - KNNDistanceMonitor: DRIFT DETECTED by Page-Hinkley test! PH value: 18.64 > threshold: 9.91, avg_distance: 40.98, reference: 28.07, ratio: 1.46x
+2026-07-08 12:48:56,622 - tinylcm_python.drift_monitor - INFO - KNNDistanceMonitor: Drift detected! Agg distance=40.9833, Reference=28.0656, Prediction=gas_pump, PH value=18.6384
+2026-07-08 12:50:51,705 - drift_detection - INFO - No more input images. Stopping.
+2026-07-08 12:50:51,717 - drift_detection - INFO - Resource CSV logging stopped
+2026-07-08 12:50:51,848 - drift_detection - INFO - Merged analysis created: logs/merged_analysis_20260708_124855.csv
+2026-07-08 12:50:51,849 - drift_detection - INFO - Final accuracy: 0.9950 based on 200/200 labeled samples
+2026-07-08 12:50:51,853 - drift_detection - INFO - Final performance summary: {'run_id': '20260708_124855', 'total_inferences': 200, 'total_drift_events': 0, 'total_drifted_inferences': 170, 'avg_latency_ms': 354.69013690948486, 'max_latency_ms': 372.65753746032715, 'min_latency_ms': 350.52490234375, 'avg_confidence': 0.1388306040689349, 'runtime_seconds': 116.33751153945923, 'labeled_samples': 200, 'accuracy': 0.995}
+2026-07-08 12:50:51,854 - drift_detection - INFO - Final merged analysis file: logs/merged_analysis_20260708_124855.csv
+2026-07-08 12:50:51,854 - drift_detection - INFO - Shutdown complete

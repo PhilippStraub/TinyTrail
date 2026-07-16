@@ -8,6 +8,12 @@ for resource-constrained devices like Raspberry Pi Zero.
 from .drift_monitor import KNNDistanceMonitor
 from .feature_extractor import TFLiteFeatureExtractor
 from .knn import LightweightKNN, DistanceMetric
+from .prototype_classifier import (
+    KMeansPrototypeClassifier,
+    NearestCentroidClassifier,
+    build_classifier,
+    kmeans,
+)
 from .scaler_pca import StandardScalerPCATransformer
 from .qparams import get_qparams
 
@@ -17,6 +23,10 @@ __all__ = [
     "TFLiteFeatureExtractor",
     "LightweightKNN",
     "DistanceMetric",
+    "NearestCentroidClassifier",
+    "KMeansPrototypeClassifier",
+    "build_classifier",
+    "kmeans",
     "StandardScalerPCATransformer",
     "get_qparams",
 ]

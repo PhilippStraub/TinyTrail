@@ -9,7 +9,7 @@ from nats.aio.client import Client as NATS
 from nats.js.api import StreamConfig
 
 # Nats Config
-NATS_URL = "nats://192.168.188.41:4223"
+NATS_URL = "nats://192.168.178.62:4222"
 ANALYSIS_STREAM_NAME = "ANALYSIS"
 ANALYSIS_SUBJECT_PREFIX = "analysis.logs"
 MAX_MSG_SIZE = 8 * 1024 * 1024  # 8 MB
