@@ -1,4 +1,5 @@
 import os
+import json
 import zipfile
 import logging
 import asyncio
@@ -50,6 +51,28 @@ class LogTransmitter:
                         logging.error(f"Failed to create stream after retries: {e}")
                         raise
 
+    @staticmethod
+    def _read_experiment_tag(deployment_path: str) -> Tuple[Optional[str], Optional[str]]:
+        """(experiment_id, scenario_name) from experiment_config.json in the deployment root.
+
+        Tags every log transmission with the run it actually came from. Without
+        this, a late transmission of a just-finished run (e.g. re-sent by
+        stop_current() when the next deployment arrives before the completion
+        watcher noticed) is indistinguishable on the server from the next run's
+        own result — both are just "a ZIP with a merged_analysis CSV inside" on
+        the same subject. The tag lets the server attribute each ZIP to its true
+        run instead of guessing from arrival order.
+        """
+        config_path = Path(deployment_path) / "experiment_config.json"
+        if not config_path.is_file():
+            return None, None
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("experiment_id"), data.get("scenario_name")
+        except (OSError, ValueError):
+            return None, None
+
     def _pack_logs(self, batch_files: List[Path]) -> Tuple[Optional[bytes], List[Path]]:
         zip_buffer = io.BytesIO()
         successfully_zipped_files = []
@@ -90,6 +113,20 @@ class LogTransmitter:
 
         logging.info(f"Preparing logs in {log_dir} for transmission...")
 
+        # Tag this transmission with the run it belongs to (see _read_experiment_tag).
+        experiment_id, scenario_name = self._read_experiment_tag(deployment_path)
+        headers = {}
+        if experiment_id:
+            headers["X-Experiment-Id"] = experiment_id
+        if scenario_name:
+            headers["X-Scenario-Name"] = scenario_name
+        if not headers:
+            logging.warning(
+                f"No experiment_config.json found under {deployment_path} — "
+                f"transmitting logs untagged (server will attribute them to "
+                f"whichever experiment it currently expects)."
+            )
+
         # Maximum number of files per batch, just gathering the first 50 files is more efficient than calculation of packages size
         MAX_FILES_PER_BATCH = 50
 
@@ -117,7 +154,7 @@ class LogTransmitter:
             # Send ZIP file via NATS
             try:
                 subject = f"{ANALYSIS_SUBJECT_PREFIX}.{self.device_id}"
-                await self.js.publish(subject, zip_data, timeout=240)  # For Robustness
+                await self.js.publish(subject, zip_data, timeout=240, headers=headers or None)
                 logging.info(f"Log archive batch {i+1}/{len(file_batches)} ({len(zip_data)} bytes) sent successfully to '{subject}'.")
 
                 # Delete successfully sent image files

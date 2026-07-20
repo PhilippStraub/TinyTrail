@@ -413,6 +413,59 @@ server/benchmark/results/
 Root `benchmark_summary.json` summarizes all scenarios. Each scenario also gets its own
 `benchmark_summary.json`.
 
+## Result Attribution & Energy-Data Integrity (2026-07-20)
+
+**Relevant for anyone reviewing the measurement infrastructure / power-energy setup:**
+result messages from the Pi are now tagged and routed by their true run identity,
+closing a race that could previously misattribute one experiment's result to
+another. Read this before drawing conclusions from `power`/`energy` fields, or from
+result folders produced before this date.
+
+**Symptom (found in existing CIFAR-10/Imagenette result sets):** a handful of
+`exp_*` folders contained the *previous* experiment's `merged_analysis` CSV
+(byte-identical, same run_id) instead of their own — proven via causal-containment
+checks in [`analysis/verify_power_coverage.py`](analysis/verify_power_coverage.py)
+(the whole deploy→result cycle took ~4-5 s while the embedded resource log spanned
+49-114 s, which is only possible if the ZIP belonged to an earlier, already-finished
+run). Because the local power trace for the mis-slotted experiment only covers those
+~4-5 s, `power.inference_window` (and therefore `energy_per_image_J`) was silently
+missing for exactly those runs — see `EXCLUDED_EXPERIMENTS` in
+[`analysis/analyze_benchmark.py`](analysis/analyze_benchmark.py).
+
+**Root cause:** the server subscribes to `analysis.logs.<device_id>` with
+`DeliverPolicy.NEW` *before* deploying the next experiment
+(`benchmark_pipeline.py`, `_subscribe_deploy_collect()`). If the Pi's belated
+transmission of the *previous* run's logs (triggered by `stop_current()` when the
+next deployment ZIP lands, `client/deployment-receiver.py`) went out only after that
+new consumer was already listening, the old ZIP looked, on arrival order alone,
+like the new run's result — the server previously accepted the first ZIP containing
+any `merged_analysis*` file as "the" result, with no check that it actually belonged
+to the experiment being awaited.
+
+**Fix (implemented, all three files touched together):**
+- `client/transmitter.py` — every log transmission now reads the deployment's own
+  `experiment_config.json` (already written per experiment by
+  `benchmark_pipeline.py::prepare_deployment()`) and tags the NATS publish with
+  `X-Experiment-Id` / `X-Scenario-Name` headers.
+- `server/benchmark/benchmark_pipeline.py` — `handle_msg()` now routes every
+  incoming ZIP to the experiment folder named by its own tag, and only treats it as
+  *this* deploy's result if the tag matches. A message tagged for a different
+  (already-completed) run is filed under that run's own folder instead of being
+  discarded or misattributed — no message is ever dropped.
+- `client/deployment-receiver.py` — `DeploymentManager` now sends each run's final
+  logs exactly once (`transmit_current_once()`), so the natural-completion watcher
+  and the next-deployment-arrived path can no longer both fire for the same run and
+  race each other into the next run's listening window.
+
+**Practical implication for measurement:** result sets collected *before* this fix
+(all current `server/benchmark/results/**` data) may still contain the handful of
+misattributed experiments listed in `EXCLUDED_EXPERIMENTS`
+(`analysis/analyze_benchmark.py`) — those are already excluded from every aggregate.
+All experiments are being fully re-run regardless, so no manual repair of old data
+is planned. Result sets collected *after* this fix should not exhibit this failure
+mode at all, since a stray/duplicate message can no longer land in the wrong
+experiment's folder.
+
 ## Resume And Summary Rebuild
 
 The benchmark is resume-safe by default:

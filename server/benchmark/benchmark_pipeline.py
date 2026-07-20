@@ -862,28 +862,65 @@ async def _subscribe_deploy_collect(
     async def handle_msg(msg):
         nonlocal received_csv
         try:
+            headers = msg.headers or {}
+            tagged_experiment_id = headers.get("X-Experiment-Id")
+            tagged_scenario_name = headers.get("X-Scenario-Name")
             with zf_module.ZipFile(io.BytesIO(msg.data)) as zf:
                 names = zf.namelist()
-                # DeliverPolicy.NEW guarantees this ZIP arrived after our deployment,
-                # so any merged_analysis CSV in it belongs to the current experiment.
+                # A ZIP is only "ours" if its embedded tag says so. DeliverPolicy.NEW
+                # only guarantees this message is new to the stream — it does NOT
+                # guarantee its contents were produced by our own deployment: the Pi
+                # can (and occasionally does) re-send the *previous* run's logs after
+                # our new consumer has already subscribed (e.g. the completion watcher
+                # hadn't yet noticed the previous run had finished). Every message is
+                # attributed to the run it actually came from — never discarded, and
+                # never blindly credited to whichever run happens to be waiting.
                 match = next(
                     (n for n in names if "merged_analysis" in n),
                     None,
                 )
                 if match:
-                    exp_dir = ensure_dir(results_dir / experiment_id)
-                    csv_path = exp_dir / Path(match).name
-                    csv_path.write_bytes(zf.read(match))
-                    print(f"[RESULT] CSV received: {csv_path.name}")
-                    # Save all other log files from the same ZIP
-                    for name in names:
-                        if name != match:
-                            try:
-                                (exp_dir / Path(name).name).write_bytes(zf.read(name))
-                            except Exception:
-                                pass
-                    received_csv = csv_path
-                    done_event.set()
+                    if tagged_experiment_id is None:
+                        # Untagged transmission (unpatched Pi client) — fall back to
+                        # best-effort attribution instead of failing closed.
+                        print(f"[RESULT] WARNING: ZIP carries no X-Experiment-Id header; "
+                              f"attributing it to the experiment currently awaited "
+                              f"({experiment_id}). Update the Pi's transmitter.py so "
+                              f"transmissions are tagged and can't be misattributed.")
+                        tagged_experiment_id = experiment_id
+                        tagged_scenario_name = scenario_name
+
+                    is_current = (
+                        tagged_experiment_id == experiment_id
+                        and tagged_scenario_name in (None, scenario_name)
+                    )
+                    if tagged_scenario_name and tagged_scenario_name != scenario_name:
+                        target_dir = results_dir.parent / tagged_scenario_name / tagged_experiment_id
+                    else:
+                        target_dir = results_dir / tagged_experiment_id
+
+                    if not is_current and _is_completed_experiment(target_dir):
+                        print(f"[RESULT] Duplicate/stale result for already-completed "
+                              f"experiment '{tagged_experiment_id}' ignored "
+                              f"(currently awaiting '{experiment_id}').")
+                    else:
+                        ensure_dir(target_dir)
+                        csv_path = target_dir / Path(match).name
+                        csv_path.write_bytes(zf.read(match))
+                        for name in names:
+                            if name != match:
+                                try:
+                                    (target_dir / Path(name).name).write_bytes(zf.read(name))
+                                except Exception:
+                                    pass
+                        if is_current:
+                            print(f"[RESULT] CSV received: {csv_path.name}")
+                            received_csv = csv_path
+                            done_event.set()
+                        else:
+                            print(f"[RESULT] Attributed stray result to experiment "
+                                  f"'{tagged_experiment_id}' (currently awaiting "
+                                  f"'{experiment_id}'); filed under {target_dir}.")
             await msg.ack()
         except Exception as e:
             print(f"[RESULT] Error processing message: {e}")

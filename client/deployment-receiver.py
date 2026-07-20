@@ -99,10 +99,34 @@ class DeploymentManager:
         self.current_process = None
         self.current_path = None
         self.log_transmitter = log_transmitter
+        # Tracks whether the *final* log transmission for the current run has
+        # already gone out, so watch_process_completion()'s natural-completion
+        # send and stop_current()'s next-deployment-arrived send can never both
+        # fire for the same run (see transmit_current_once()).
+        self._logs_transmitted = False
+        self._transmit_lock = asyncio.Lock()
+
+    async def transmit_current_once(self):
+        """Send the current run's final logs exactly once, however triggered.
+
+        Both the natural-completion watcher and a freshly arrived next
+        deployment can independently decide "this run is done, send its logs".
+        Without this guard, a second, later send of the same (already-sent) run
+        can land on the wire after the *next* run's NATS consumer has already
+        subscribed, where it risks being mistaken for the next run's result.
+        Routing through one lock/flag means there is only ever one send per run.
+        """
+        async with self._transmit_lock:
+            if self._logs_transmitted or not self.current_path:
+                return
+            await self.log_transmitter.transmit_logs(self.current_path)
+            self._logs_transmitted = True
 
     async def stop_current(self):
-        if self.current_path:
-            await self.log_transmitter.transmit_logs(self.current_path)
+        # Make sure this run's logs are confirmed off the device before we go on
+        # to unpack/start the next deployment. If the completion watcher already
+        # sent them, this is a no-op (see transmit_current_once()).
+        await self.transmit_current_once()
 
         if self.current_process and self.current_process.is_alive():
             logging.info("Terminating current model...")
@@ -116,6 +140,7 @@ class DeploymentManager:
 
         self.current_process = None
         self.current_path = None
+        self._logs_transmitted = False
 
     # Searches for a main.py to execute from the received deployment
     # If there is only one .py file, not called main, it will execute it
@@ -152,6 +177,7 @@ class DeploymentManager:
 
         self.current_process = process
         self.current_path = deployment_path
+        self._logs_transmitted = False
 
 
 # Searches for a device ID within file system (must be provided beforehand)
@@ -374,14 +400,21 @@ async def start_consumer(device_id, deployment_manager):
 
     logging.info(f"Listening for deployments on subject '{subject}'...")
 
-    # Start periodic log transmission
+    # Periodic heartbeat transmission for very long runs — only while the
+    # inference process is still actually running, so it can never re-send
+    # (or race against) the final transmission of an already-finished run.
     async def periodic_log_transmission():
         while True:
             await asyncio.sleep(300)
-            logging.info("Performing scheduled log transmission...")
-            await log_transmitter.transmit_logs(deployment_manager.current_path)
+            if deployment_manager.current_process is not None and deployment_manager.current_path is not None:
+                logging.info("Performing scheduled log transmission...")
+                await log_transmitter.transmit_logs(deployment_manager.current_path)
 
-    # Watch for natural process completion and transmit logs immediately
+    # Watch for natural process completion and transmit logs immediately.
+    # Only current_process is cleared here — current_path stays set so that
+    # stop_current() (triggered once the *next* deployment arrives) still sees
+    # this run's directory for cleanup, and so its own transmit_current_once()
+    # call is a guaranteed no-op instead of a second, racy send of the same logs.
     async def watch_process_completion():
         while True:
             await asyncio.sleep(10)
@@ -389,9 +422,8 @@ async def start_consumer(device_id, deployment_manager):
             path = deployment_manager.current_path
             if proc is not None and not proc.is_alive() and path is not None:
                 logging.info("[ProcessWatcher] Inference process finished. Transmitting logs immediately...")
+                await deployment_manager.transmit_current_once()
                 deployment_manager.current_process = None
-                deployment_manager.current_path = None
-                await log_transmitter.transmit_logs(path)
                 logging.info("[ProcessWatcher] Log transmission complete.")
 
     transmission_task = asyncio.create_task(periodic_log_transmission())
