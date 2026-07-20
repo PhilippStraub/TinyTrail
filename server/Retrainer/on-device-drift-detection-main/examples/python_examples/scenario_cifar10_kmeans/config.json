@@ -56,26 +56,7 @@
       "idw_power": 3.0,
       "initial_state_path": "./initial_state/knn_initial_state_objects.json"
     },
-    "drift_detectors": [
-      {
-        "type": "KNNDistanceMonitor",
-        "delta": 0.99,
-        "lambda_threshold": 9.91,
-        "exit_threshold_factor": 0.7,
-        "high_confidence_threshold": 0.9,
-        "stable_known_classes": ["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"],
-        "reference_stats_path": "./initial_state/knn_reference_stats.json",
-        "warm_up_samples": 5,
-        "reference_update_interval": 100,
-        "reference_update_factor": 0.05,
-        "pause_reference_update_during_drift": true,
-        "drift_cooldown_period": 30,
-        "use_adaptive_thresholds": false,
-        "allow_runtime_threshold_adaptation": false,
-        "adaptive_delta_std_multiplier": 1.5,
-        "adaptive_lambda_std_multiplier": 5.0
-      }
-    ],
+    "drift_detectors": [],
     "data_logger": {
       "enabled": false,
       "log_dir": "./logs",
