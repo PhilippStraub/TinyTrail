@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Scenario 3: Feature processor training (includes all classes by default).
+Scenario autodrive2: Feature processor training (includes all classes by default).
 Thin wrapper around common.feature_processor with CLI parameters.
 """
 
@@ -11,11 +11,18 @@ from pathlib import Path
 # Paths - adjusted
 ROOT_DIR = Path(__file__).parent.parent.parent.parent
 SCENARIO_DIR = Path(__file__).parent
-PY_EXAMPLE_MODEL_DIR = ROOT_DIR / "examples/python_examples/scenario_cifar10_nearest_centroid/model"
+
+PY_EXAMPLES_DIR = ROOT_DIR / "examples/python_examples"
+PY_EXAMPLE_MODEL_DIR = PY_EXAMPLES_DIR / "scenario_rover-lab_knn/model"
 DEFAULT_MODEL_PATH = PY_EXAMPLE_MODEL_DIR / "model_object.tflite"
-# CIFAR-10 class folders live under train/ and match train_core.py defaults
-DEFAULT_DATA_DIR = ROOT_DIR / "examples/dataset_cifar10/train"
+# Imagenette class folders live under train/ and match train_core.py defaults
+DEFAULT_DATA_DIR = ROOT_DIR / "examples/dataset_rover-lab/train"
 DEFAULT_OUTPUT_DIR = PY_EXAMPLE_MODEL_DIR
+DEFAULT_MIRROR_DIRS = [
+    PY_EXAMPLES_DIR / "scenario_rover-lab_kmeans/model",
+    PY_EXAMPLES_DIR / "scenario_rover-lab_nearest_centroid/model",
+]
+
 
 # Import common module
 sys.path.insert(0, str(ROOT_DIR / "examples/model_training"))
@@ -35,10 +42,14 @@ def parse_args():
     p.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     p.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     p.add_argument("--exclude-classes", nargs="*", default=None, help="Classes to exclude")
-    p.add_argument("--img-size", type=int, default=DEFAULT_IMG_SIZE)
-    p.add_argument("--pca-components", type=int, default=DEFAULT_PCA_COMPONENTS)
+    p.add_argument("--img-size", type=int, default=160)
+    p.add_argument("--pca-components", type=int, default=512)
     p.add_argument("--max-samples", type=int, default=DEFAULT_MAX_SAMPLES)
-    p.add_argument("--mirror-dir", action="append", default=[], help="Mirror output here (can repeat)")
+    p.add_argument("--mirror-dir", type=Path, action="append", default=list(DEFAULT_MIRROR_DIRS),
+                   help="Mirror output here (can repeat). Defaults to the "
+                        "KMeans/NearestCentroid scenarios; use --no-mirror to disable.")
+    p.add_argument("--no-mirror", action="store_true",
+                   help="Do not mirror the processor into the other scenario folders.")
     return p.parse_args()
 
 
@@ -50,6 +61,8 @@ if __name__ == "__main__":
         print("Hint: run train_core.py (which writes to the Python example folder) or pass --model-path explicitly.")
         raise SystemExit(1)
 
+    mirror_dirs = [] if args.no_mirror else args.mirror_dir
+
     processor_path = build_and_save_processor(
         model_path=args.model_path,
         data_dir=args.data_dir,
@@ -58,7 +71,7 @@ if __name__ == "__main__":
         img_size=args.img_size,
         pca_components=args.pca_components,
         max_samples=args.max_samples,
-        mirror_dirs=args.mirror_dir,
+        mirror_dirs=mirror_dirs,
     )
 
     print(f"\n✓ Feature processor ready: {processor_path}")

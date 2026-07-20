@@ -5,6 +5,10 @@ Scenario CIFAR-10: Low-res MobileNet training for CIFAR-10 benchmark.
 This script can train either:
 - lowres: new CIFAR10 Low-res MobileNet
 - old: old ImageNet MobileNetV2 transfer-learning model
+
+This is the shared feature extractor for all three CIFAR-10 classifier
+scenarios (KNN / KMeans / NearestCentroid). It is trained once and the artifacts
+are mirrored into the three python_examples model folders by default.
 """
 
 import argparse
@@ -16,9 +20,16 @@ ROOT_DIR = Path(__file__).parent.parent.parent.parent  # project root
 TRAIN_DIR = ROOT_DIR / "examples/dataset_cifar10/train"
 
 SCENARIO_DIR = Path(__file__).parent
-PY_EXAMPLE_MODEL_DIR = (
-    ROOT_DIR / "examples/python_examples/scenario_cifar10_knn_benchmark/model"
-)
+
+# Default target: the KNN python example. The other two classifier scenarios
+# (KMeans / NearestCentroid) reuse the *same* feature extractor, so we mirror the
+# artifacts into their model folders too.
+PY_EXAMPLES_DIR = ROOT_DIR / "examples/python_examples"
+PY_EXAMPLE_MODEL_DIR = PY_EXAMPLES_DIR / "scenario_cifar10_knn/model"
+DEFAULT_MIRROR_DIRS = [
+    PY_EXAMPLES_DIR / "scenario_cifar10_kmeans/model",
+    PY_EXAMPLES_DIR / "scenario_cifar10_nearest_centroid/model",
+]
 
 # Make shared training utils importable
 sys.path.insert(0, str(ROOT_DIR / "examples/model_training"))
@@ -72,14 +83,26 @@ def parse_args():
     p.add_argument("--lr", type=float, default=CIFAR10_LR)
     p.add_argument("--fine-tune-lr", type=float, default=DEFAULT_FINE_TUNE_LR)
 
-    # No mirroring by default
-    p.add_argument("--mirror-dir", action="append", default=[])
+    # Mirror the trained artifacts into the KMeans / NearestCentroid model folders
+    # by default (they share this feature extractor). Pass --no-mirror to skip.
+    p.add_argument("--mirror-dir", action="append", default=None,
+                   help="Extra dir to mirror artifacts into (can repeat). "
+                        "If omitted, the KMeans/NearestCentroid scenarios are used.")
+    p.add_argument("--no-mirror", action="store_true",
+                   help="Do not mirror artifacts into the other scenario folders.")
 
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+
+    if args.no_mirror:
+        mirror_dirs = []
+    elif args.mirror_dir is not None:
+        mirror_dirs = args.mirror_dir
+    else:
+        mirror_dirs = DEFAULT_MIRROR_DIRS
 
     print("=" * 60)
     print("CIFAR-10 training")
@@ -108,7 +131,7 @@ if __name__ == "__main__":
             val_ds=val_ds,
             class_names=class_names,
             model_dir=args.model_dir,
-            mirror_dirs=args.mirror_dir,
+            mirror_dirs=mirror_dirs,
             epochs=args.epochs,
             learning_rate=args.lr,
             img_size=args.img_size,
@@ -130,7 +153,7 @@ if __name__ == "__main__":
             val_ds=val_ds,
             class_names=class_names,
             model_dir=args.model_dir,
-            mirror_dirs=args.mirror_dir,
+            mirror_dirs=mirror_dirs,
             epochs=args.epochs,
             fine_tune_epochs=args.fine_tune_epochs,
             learning_rate=DEFAULT_LR,

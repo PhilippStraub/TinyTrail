@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Scenario 3: MobileNetV2 training WITH lego class.
+Scenario autodrive3: MobileNetV2 training for autodrive3.
 Thin wrapper around shared training utilities with CLI parameters.
 """
 
@@ -10,10 +10,18 @@ import sys
 
 # Paths
 ROOT_DIR = Path(__file__).parent.parent.parent.parent  # project root
-TRAIN_DIR = ROOT_DIR / "examples/data2"
+TRAIN_DIR = ROOT_DIR / "examples/dataset_rover-lab/train"
 SCENARIO_DIR = Path(__file__).parent
-MODEL_DIR = SCENARIO_DIR / "model"  # unused default; CLI default points to Python example
-PY_EXAMPLE_MODEL_DIR = ROOT_DIR / "examples/python_examples/scenario_banknote_drift/model"
+
+# Default target: the KNN python example. The other two classifier scenarios
+# (KMeans / NearestCentroid) reuse the *same* feature extractor, so we mirror the
+# artifacts into their model folders too.
+PY_EXAMPLES_DIR = ROOT_DIR / "examples/python_examples"
+PY_EXAMPLE_MODEL_DIR = PY_EXAMPLES_DIR / "scenario_rover-lab_knn/model"
+DEFAULT_MIRROR_DIRS = [
+    PY_EXAMPLES_DIR / "scenario_rover-lab_kmeans/model",
+    PY_EXAMPLES_DIR / "scenario_rover-lab_nearest_centroid/model",
+]
 
 # Make shared training utils importable
 sys.path.insert(0, str(ROOT_DIR / "examples/model_training"))
@@ -30,7 +38,7 @@ from common.training import (
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Scenario 3 training (include all classes by default)")
+    p = argparse.ArgumentParser(description="Scenario autodrive3 training (include all classes by default)")
     p.add_argument("--data-dir", type=Path, default=TRAIN_DIR)
     # Default: write directly into the Python example model folder
     p.add_argument("--model-dir", type=Path, default=PY_EXAMPLE_MODEL_DIR)
@@ -39,13 +47,14 @@ def parse_args():
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--validation-split", type=float, default=0.2)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--img-size", type=int, default=DEFAULT_IMG_SIZE)
-    p.add_argument("--epochs", type=int, default=8)
-    p.add_argument("--fine-tune-epochs", type=int, default=5)
+    p.add_argument("--img-size", type=int, default=160)
+    p.add_argument("--epochs", type=int, default=30)
+    p.add_argument("--fine-tune-epochs", type=int, default=10)
     p.add_argument("--lr", type=float, default=DEFAULT_LR)
     p.add_argument("--fine-tune-lr", type=float, default=DEFAULT_FINE_TUNE_LR)
-    # No mirroring by default (we already write to the Python example directory)
-    p.add_argument("--mirror-dir", action="append", default=[])
+    # Mirror into the KMeans/NearestCentroid scenario folders by default, since they
+    # reuse the same feature extractor (see DEFAULT_MIRROR_DIRS above).
+    p.add_argument("--mirror-dir", type=Path, action="append", default=list(DEFAULT_MIRROR_DIRS))
     return p.parse_args()
 
 
@@ -53,7 +62,7 @@ if __name__ == "__main__":
     args = parse_args()
 
     print("=" * 50)
-    print("SCENARIO 3: Training (banknote drift later)")
+    print("Rover-lab: Backbone training (pretrained MobileNetV2 feature extractor)")
     print("=" * 50)
 
     train_ds, val_ds, class_names = build_datasets(

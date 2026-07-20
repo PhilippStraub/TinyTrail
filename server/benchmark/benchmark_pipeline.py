@@ -732,6 +732,18 @@ def _copy_state_artifacts(ctx: ScenarioContext, config: Dict) -> None:
         shutil.copy2(src, dst)
 
 
+def _num_classes(ctx: ScenarioContext) -> int:
+    """Class count for sizing the adaptive classifier's max_samples.
+
+    Reads labels_object.txt — always present regardless of drift-detection config —
+    instead of drift_detectors[0]['stable_known_classes'], which doesn't exist once
+    drift detection is disabled ("drift_detectors": []) and would raise IndexError.
+    """
+    labels_path = ctx.model_dir / "labels_object.txt"
+    labels = [ln.strip() for ln in labels_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    return len(labels) if labels else 10
+
+
 def prepare_deployment(
     ctx: ScenarioContext,
     pca_enabled: bool,
@@ -761,8 +773,7 @@ def prepare_deployment(
     if "feature_transformation" in config.get("tinylcm", {}):
         config["tinylcm"]["feature_transformation"]["enabled"] = pca_enabled
 
-    known_classes = config["tinylcm"]["drift_detectors"][0].get("stable_known_classes", [])
-    num_classes = len(known_classes) if known_classes else 10
+    num_classes = _num_classes(ctx)
     config["tinylcm"]["adaptive_classifier"]["max_samples"] = samples_per_class * num_classes
 
     # Same seed for test-image shuffle so each run is reproducible end-to-end
