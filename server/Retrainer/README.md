@@ -22,7 +22,7 @@ cd on-device-drift-detection
 ### 2. Start Development Container
 
 ```bash
-# Open in VS Code
+# Open the Retrainer Component in VS Code
 code .
 # Then: Ctrl+Shift+P → "Dev Containers: Reopen in Container"
 

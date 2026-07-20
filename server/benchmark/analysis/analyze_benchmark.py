@@ -272,6 +272,61 @@ def _classifier_state_kb(meta: Dict, n_classes: int,
     return n_vectors * int(feature_dim) * 4 / 1024.0
 
 
+def _confusion_counts(df: pd.DataFrame) -> Optional[Dict]:
+    """Per-class one-vs-rest TP/FP/FN/TN + macro P/R/F1 from ground_truth/prediction.
+
+    Pure post-processing over columns the Pi already writes into merged_analysis_*.csv
+    (main.py's PerformanceLogger.log_inference) — no change to the on-device runtime or
+    CSV schema. Rows missing either label are dropped first, mirroring the existing
+    accuracy exclusion rule for unlabeled images (load_experiment's "correct" fallback).
+    """
+    if "ground_truth" not in df.columns or "prediction" not in df.columns:
+        return None
+    labeled = df.dropna(subset=["ground_truth", "prediction"])
+    if labeled.empty:
+        return None
+    labels = sorted(set(labeled["ground_truth"]) | set(labeled["prediction"]))
+    cm = pd.crosstab(labeled["ground_truth"], labeled["prediction"]).reindex(
+        index=labels, columns=labels, fill_value=0
+    )
+    total = int(cm.values.sum())
+    per_class: Dict[str, Dict] = {}
+    precisions, recalls, f1s = [], [], []
+    tp_sum = fp_sum = fn_sum = tn_sum = 0
+    for c in labels:
+        tp = int(cm.loc[c, c])
+        fp = int(cm[c].sum() - tp)          # predicted c, actually something else
+        fn = int(cm.loc[c].sum() - tp)      # actually c, predicted something else
+        tn = total - tp - fp - fn
+        precision = tp / (tp + fp) if (tp + fp) else np.nan
+        recall = tp / (tp + fn) if (tp + fn) else np.nan
+        f1 = (2 * precision * recall / (precision + recall)
+              if pd.notna(precision) and pd.notna(recall) and (precision + recall) > 0
+              else np.nan)
+        per_class[c] = {"tp": tp, "fp": fp, "fn": fn, "tn": tn,
+                        "precision": precision, "recall": recall, "f1": f1,
+                        "support": int(cm.loc[c].sum())}
+        tp_sum += tp
+        fp_sum += fp
+        fn_sum += fn
+        tn_sum += tn
+        if pd.notna(precision):
+            precisions.append(precision)
+        if pd.notna(recall):
+            recalls.append(recall)
+        if pd.notna(f1):
+            f1s.append(f1)
+    return {
+        "labels": labels,
+        "per_class": per_class,
+        "tp_micro": tp_sum, "fp_micro": fp_sum, "fn_micro": fn_sum, "tn_micro": tn_sum,
+        "precision_macro": float(np.mean(precisions)) if precisions else np.nan,
+        "recall_macro": float(np.mean(recalls)) if recalls else np.nan,
+        "f1_macro": float(np.mean(f1s)) if f1s else np.nan,
+        "n_labeled": int(len(labeled)),
+    }
+
+
 def load_experiment(exp_dir: Path) -> Optional[Dict]:
     """Return one flat dict of metrics for a single experiment, or None if incomplete."""
     meta_path = exp_dir / "experiment_metadata.json"
@@ -323,6 +378,22 @@ def load_experiment(exp_dir: Path) -> Optional[Dict]:
         row["accuracy"] = float(_to_bool(df["correct"]).mean())
     else:
         row["accuracy"] = np.nan
+
+    # ── Confusion matrix / TP,FP,TN,FN ──────────────────────────────────────
+    conf = _confusion_counts(df)
+    if conf:
+        row["tp_micro"] = conf["tp_micro"]
+        row["fp_micro"] = conf["fp_micro"]
+        row["fn_micro"] = conf["fn_micro"]
+        row["tn_micro"] = conf["tn_micro"]
+        row["precision_macro"] = conf["precision_macro"]
+        row["recall_macro"] = conf["recall_macro"]
+        row["f1_macro"] = conf["f1_macro"]
+        row["n_labeled"] = conf["n_labeled"]
+    else:
+        row["tp_micro"] = row["fp_micro"] = row["fn_micro"] = row["tn_micro"] = np.nan
+        row["precision_macro"] = row["recall_macro"] = row["f1_macro"] = np.nan
+        row["n_labeled"] = np.nan
 
     # ── Latency ───────────────────────────────────────────────────────────
     if "latency_ms" in df.columns:
@@ -393,12 +464,48 @@ def build_summary(results_dir: Path) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+def build_confusion_table(results_dir: Path) -> pd.DataFrame:
+    """Long-format table: one row per (experiment, class) with TP/FP/FN/TN.
+
+    Independent pass over the same experiment dirs as build_summary(); re-reads each
+    merged_analysis_*.csv (cheap, one-time analysis run) rather than changing
+    load_experiment()'s return contract, which make_findings_figures.py and the
+    notebooks depend on unchanged.
+    """
+    rows = []
+    for exp_dir in _discover_experiment_dirs(results_dir):
+        meta_path = exp_dir / "experiment_metadata.json"
+        merged_path = _latest(exp_dir.glob("merged_analysis_*.csv"))
+        if not meta_path.exists() or merged_path is None:
+            continue
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        df = pd.read_csv(merged_path)
+        scenario_name = meta.get("scenario_name") or exp_dir.parent.name
+        experiment_id = meta.get("experiment_id", exp_dir.name)
+        run_id = f"{scenario_name}/{experiment_id}"
+        conf = _confusion_counts(df)
+        if not conf:
+            continue
+        for label, c in conf["per_class"].items():
+            rows.append({
+                "run_id": run_id, "scenario_name": scenario_name,
+                "experiment_id": experiment_id, "label": label,
+                "tp": c["tp"], "fp": c["fp"], "fn": c["fn"], "tn": c["tn"],
+                "precision": c["precision"], "recall": c["recall"], "f1": c["f1"],
+                "support": c["support"],
+            })
+    return pd.DataFrame(rows)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Level 2 — aggregate across seeds (mean ± std ± 95% CI)
 # ──────────────────────────────────────────────────────────────────────────────
 
 METRICS = [
     ("accuracy",              "Accuracy"),
+    ("precision_macro",       "Precision (macro)"),
+    ("recall_macro",          "Recall (macro)"),
+    ("f1_macro",              "F1 (macro)"),
     ("net_energy_per_image_J","Net energy per image (J)"),
     ("avg_power_W",           "Avg power (W)"),
     ("net_avg_power_W",       "Net avg power (W)"),
@@ -768,6 +875,11 @@ def main():
         agg["plot_label"] = agg["scenario_name"].fillna("unknown") + " / " + agg["pca_label"].fillna("unknown")
     agg.to_csv(out_dir / "aggregated_by_config.csv", index=False)
     print(f"[analyze] {len(agg)} (pca x samples) cells -> aggregated_by_config.csv")
+
+    confusion = build_confusion_table(results_dir)
+    if not confusion.empty:
+        confusion.to_csv(out_dir / "confusion_matrix_per_class.csv", index=False)
+        print(f"[analyze] {len(confusion)} (experiment x class) rows -> confusion_matrix_per_class.csv")
 
     fig_dir = out_dir / "figures"
     plot_paper_curves(agg, fig_dir)
