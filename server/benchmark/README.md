@@ -63,6 +63,80 @@ You can also use objects for per-scenario overrides:
 
 Object fields override the global benchmark config only for that scenario.
 
+## Adding A New Scenario
+
+Step-by-step checklist to add a scenario that reuses an already-trained model (no
+retraining triggered by the pipeline itself):
+
+1. **Create the scenario folder.** The pipeline requires:
+   ```text
+   server/Retrainer/on-device-drift-detection-main/examples/python_examples/scenario_<name>/
+   ```
+   If this folder does not exist, `build_scenario_context()` raises `FileNotFoundError`
+   immediately. Copy an existing scenario of the same classifier type
+   (`scenario_cifar10_knn_benchmark`, `_nearest_centroid`, or `_kmeans`) as a starting
+   point for `config.json`, `main.py`, and `create_initial_state.py`.
+
+2. **Drop in your already-trained model.** Place these files under
+   `scenario_<name>/model/`:
+   ```text
+   model_object.tflite
+   labels_object.txt
+   feature_processor.npz                     # optional, pre-fit scaler/PCA
+   feature_processor_pca<N>.npz               # optional cache, fixed component count
+   feature_processor_pca<pct>var.npz          # optional cache, e.g. pca95var for 95%
+   ```
+   If a `feature_processor_pca*` cache matching your `pca_configs` entry is already
+   present, `ensure_feature_processor()` skips training a new one — see
+   [Model Training And Feature Processor](#model-training-and-feature-processor).
+
+3. **Point `create_initial_state.py` at your reference (train) images.** Edit the
+   `CLASSES` dict / `INITIAL_IMAGE_DATA_DIR` at the top of the copied script, following
+   the existing convention:
+   ```text
+   examples/dataset_<name>/train/<class>/*.jpg
+   ```
+   Also set `CLASSIFIER_TYPE` in that file to match `tinylcm.adaptive_classifier.type`
+   in `config.json` (`"knn"`, `"nearest_centroid"`, or `"kmeans"`) — see
+   [Supported Classifiers](#supported-classifiers). This script only samples images
+   through the already-trained model/feature extractor; it does not train weights.
+
+4. **Provide the held-out test split.** Either place images at the dataset-name
+   convention:
+   ```text
+   examples/dataset_<name>/test/<class>/*.jpg
+   ```
+   or point `test_data_dir` / `test_data_dirs` in `benchmark_config.json` at wherever
+   your test images live — see [Image Resolution And Datasets](#image-resolution-and-datasets).
+   Test images are sampled automatically per experiment by `populate_test_images()`:
+   for each class it deterministically shuffles the files in the test folder with
+   `random.Random(seed + class_index)` and copies the first `test_images_per_class` of
+   them into `raw_data/<name>/input_images/<class>/`, rebuilding that folder from
+   scratch every run. Different seeds in the sweep therefore draw different (but
+   reproducible) test images, expanding effective coverage across the sweep. If
+   `test_data_dir` cannot be resolved, this step raises `FileNotFoundError` before any
+   deployment happens.
+
+5. **Register the scenario.** Add `"scenario_<name>"` (the exact folder name, not an
+   alias) to `experiment_names` in `server/benchmark/benchmark_config.json` — see
+   [Scenario List](#scenario-list). Double-check the name matches the folder exactly;
+   a mismatch (e.g. `"scenario_cifar10_knn"` vs. the actual
+   `scenario_cifar10_knn_benchmark` folder) fails with the same `FileNotFoundError` as
+   step 1.
+
+6. **Do not hand-create these — the pipeline (re)generates them every run:**
+   ```text
+   scenario_<name>/initial_state/*.json
+   server/Deployment-Packager/nats-model-service/raw_data/scenario_<name>/
+   ```
+
+7. **Dry-run first:**
+   ```powershell
+   & $py benchmark_pipeline.py --dry-run
+   ```
+   to confirm the scenario resolves (paths, classifier type, dataset name, test data
+   dir) before deploying anything to the Pi.
+
 ## Required Scenario Files
 
 Each scenario name must correspond to a folder here:
