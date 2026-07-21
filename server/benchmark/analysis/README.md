@@ -60,10 +60,35 @@ The pipeline is trained on the **full** training set; only the **initialization 
 
 | File | Contents used |
 |---|---|
-| `experiment_metadata.json` | config (pca, samples_per_class, seed), PCA explained variance, and the pre-computed **`power`** block (energy/charge metrics) |
+| `experiment_metadata.json` | config (pca, samples_per_class, seed), PCA explained variance, the pre-computed **`power`** block (`full_window`/`inference_window`: `avg_power_W`, `energy_J`, `energy_per_image_J`), and `clock_offset` |
 | `merged_analysis_*.csv` | one row per inference: prediction, ground_truth, confidence, latency, cumulative/final accuracy, CPU%, process RSS, `timestamp_unix`, drift flag |
 | `power_*.csv` | raw Voltcraft trace: `timestamp, V_set, I_set, V_out, I_out, P_out, output` (~5 Hz) |
 | `resource_usage_*.csv` | Pi-side resource log; its `timestamp_unix` `[min,max]` defines the **inference window** |
+
+### 2.1 Baseline blocks (`../results/<scenario_name>/baseline_NNN/`)
+
+Written by `run_baseline_block()` in `benchmark_pipeline.py` — one block deployed
+automatically **before the first `(pca, samples_per_class)` cell and after every
+subsequent cell** (so each interior block does double duty: "after" for the cell just
+finished, "before" for the one about to start). Each block deploys **n = 3** warm-idle
+runs (`application.baseline_mode=true` — setup, `delay_ms` pacing, and resource/power
+logging identical to a real experiment; only the feature-extraction/classifier call is
+skipped) and folds them into `baseline_NNN/baseline_summary.json`:
+
+| Field | Meaning |
+|---|---|
+| `block_index`, `scenario_name` | identity |
+| `n_deployments`, `n_ok` | how many of the 3 idle runs completed (`OK` vs `TIMEOUT`) |
+| `avg_power_W_mean` | mean idle power over the `n_ok` runs — the **local baseline** used to net-correct every experiment this block brackets |
+| `avg_power_W_values` | the raw per-run idle powers (≤3 values) — propagated into `EDP_ci95_systematic` via `_local_baseline_sem_w()` |
+| `clock_offset` | best (smallest round-trip) PC↔Pi offset measurement among the block's runs |
+| `recorded_at` | PC-clock timestamp the block finished; matched against each experiment's `started_at`/`result_received_at` to find the bracketing pair (see `_bracketing_blocks()`) |
+| `runs` | full per-run detail (`run_id`, `status`, `clock_offset`, `power`) — mainly for debugging a failed/partial block |
+
+If a block has fewer than `n_ok = 3` (deployment timeout), `avg_power_W_mean` is still
+computed over whatever succeeded; if `n_ok = 0` the block is skipped entirely by
+`_load_baseline_blocks()` (`avg_power_W_mean` is `None`) and the nearest *other* block
+takes over bracketing that experiment, if one exists on that side.
 
 ---
 
@@ -86,9 +111,9 @@ Built by `build_summary()`. Columns and how each is derived:
 | `knn_store_kb` | KB | deterministic analytical reference-store estimate = `spc × classes × feature_dim × 4 B` for sample-storing classifiers |
 | `drift_events` | count | drift detections (drift detection is otherwise out of scope) |
 | `avg_power_W` | W | mean Pi power over the inference window (incl. idle) |
-| `net_avg_power_W` | W | `avg_power_W − idle_baseline` → marginal draw of inference |
+| `net_avg_power_W_local` | W | `avg_power_W − local_baseline_power_w` → marginal draw of inference |
 | `energy_per_image_J` | J | gross energy per inference (incl. idle) |
-| `net_energy_per_image_J` | J | **marginal** energy per inference (idle removed) — the headline energy metric |
+| `EDP` | J | **marginal** energy per inference (idle removed, local baseline) — the headline energy metric |
 | `inference_duration_s` | s | length of the measured inference window |
 
 The notebooks additionally derive `charge_run_mAh` and `net_charge_run_mAh` (charge per run).
@@ -123,7 +148,7 @@ E = ∫ P dt   ≈   Σ (P_i + P_{i+1})/2 · (t_{i+1} − t_i)     [trapezoidal]
 
 - **Joule (J)** is the SI unit of **energy**: `1 J = 1 watt-second (W·s)`. Power (W) × time (s)
   = energy (J). The `_J` suffix on a column and the `(J)` on an axis label simply state that
-  unit — e.g. `net_energy_per_image_J` is *Joules per image*.
+  unit — e.g. `EDP` is *Joules per inference*.
 - **Inference window.** The integral is sliced to the Pi's actual inference period (the
   `[min,max]` of `resource_usage_*.csv:timestamp_unix`), so boot/deploy time is excluded. If
   that window is unavailable (clock-sync gap) the code falls back to the full trace and records
@@ -133,11 +158,13 @@ E = ∫ P dt   ≈   Σ (P_i + P_{i+1})/2 · (t_{i+1} − t_i)     [trapezoidal]
   into a fair **cost of one inference**.
 - **net** = baseline-subtracted. The Pi draws power just being **on** (idle ≈ 0.61 W of the
   ≈ 0.79 W total). That idle offset is identical for every config and would swamp the small
-  inference cost, so the idle baseline (measured once via
-  `benchmark_pipeline.py --measure-baseline`) is subtracted:
-  `net_avg_power_W = avg_power_W − baseline`, then `net_energy_per_image_J = net_avg_power_W ×
-  duration / n_images`. This isolates the **marginal** energy that actually depends on sample
-  size / PCA — exactly what the sweet-spot question needs.
+  inference cost, so it is subtracted using a **local** baseline: `run_baseline_block()`
+  automatically deploys 3 idle runs before the first and after every `(pca, samples_per_class)`
+  cell, and `_local_baseline_power_w()` interpolates from the pair of blocks bracketing each
+  experiment in time (`baseline_summary.json`, per scenario) — no manual measurement step.
+  `net_avg_power_W_local = avg_power_W − local_baseline_power_w`, then
+  `EDP = net_avg_power_W_local × latency_ms_mean / 1000`. This isolates the **marginal** energy
+  that actually depends on sample size / PCA — exactly what the sweet-spot question needs.
 
 The notebooks plot the **net** value. The absolute magnitude differs strongly by dataset and
 feature extractor, so the exported findings report CIFAR-10 and Imagenette separately.
@@ -285,8 +312,9 @@ lead is expected physically: model loading finishes, *then* the resource logger 
 
 - **Relative comparisons** (PCA vs no-PCA, classifier vs classifier, sample-count sweep) are
   immune regardless: a constant offset is a common-mode error and cancels.
-- **Absolute values** (`net_energy_per_image_J`, `net_avg_power_W`) are the only ones exposed,
-  and only to a sub-second residual. Note that `net` subtracts the idle baseline (§5), so it is
+- **Absolute values** (`EDP`, `net_avg_power_W_local`, and their clock-offset-corrected
+  counterparts `EDP_offset_corrected`/`net_avg_power_W_offset_corrected`) are the only ones
+  exposed, and only to a sub-second residual. Note that `net` subtracts the idle baseline (§5), so it is
   ~23 % (CIFAR-10) / ~45 % (Imagenette) of gross energy — a given absolute deviation is
   correspondingly larger in relative terms.
 - The ±2 s sensitivity printed by §10.1 is a **what-if**, not an error bar. It is a boundary

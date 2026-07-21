@@ -24,7 +24,6 @@ Usage:
   python benchmark_pipeline.py --config my_cfg.json
   python benchmark_pipeline.py --dry-run              # print experiments, no execution
   python benchmark_pipeline.py --rebuild-summary      # rebuild summaries from finished runs
-  python benchmark_pipeline.py --measure-baseline 60  # measure idle Pi power, then exit
 """
 
 import argparse
@@ -855,7 +854,7 @@ def run_baseline_block(
         if result_csv and power_cfg.get("enabled"):
             n_images = _count_inferences(result_csv)
             entry["power"] = compute_power_metrics(
-                result_csv.parent, n_images=n_images, baseline_power_w=None,
+                result_csv.parent, n_images=n_images,
             )
         runs.append(entry)
         print(f"[BASELINE:{ctx.name}] block {block_index} {k}/{n} -> {entry['status']}")
@@ -948,7 +947,8 @@ async def _subscribe_deploy_collect(
     1. Subscribe to analysis.logs.{device_id} (deliver_policy=new)
     2. Deploy in a thread executor so the event loop stays alive
     3. Wait for a ZIP containing merged_analysis_{experiment_id}*.csv
-    4. Save all files from the ZIP into results_dir/{scenario_name}/{experiment_id}/
+    4. Save all files from the ZIP into results_dir/{experiment_id}/ (results_dir is
+       already scenario-scoped by the caller — see scenario_results_dir())
 
     Returns (received_csv, clock_offset) — clock_offset is the NTP-style PC<->Pi
     offset measured right after connecting, before any deploy/stream traffic
@@ -1091,7 +1091,7 @@ async def _subscribe_deploy_collect(
             power_logger = PowerLogger(
                 power_csv,
                 port=power_cfg.get("port", "COM3"),
-                rate=power_cfg.get("rate", 5.0),
+                rate=power_cfg.get("rate", 8.0),
             )
             power_logger.start()
             print(f"[POWER] Logging → {power_csv.name}  (device: {power_logger.device})")
@@ -1217,14 +1217,17 @@ def _integrate(ts, pw, lo=None, hi=None):
 def compute_power_metrics(
     exp_dir: Path,
     n_images: Optional[int] = None,
-    baseline_power_w: Optional[float] = None,
 ) -> Dict:
     """Derive energy/power metrics for one experiment from its power_*.csv.
 
     Produces:
       - full_window:       integral over the whole deploy→result trace
       - inference_window:  integral sliced to the Pi's actual inference period
-      - energy_per_image_J and net_* (marginal over idle baseline), when available
+      - energy_per_image_J, when available
+
+    Net (baseline-subtracted) power/energy is *not* computed here — it is derived
+    later, per-scenario, from the bracketing warm-idle baseline blocks (see
+    run_baseline_block / analysis/analyze_benchmark.py:_local_baseline_power_w).
     """
     power_csv = next(iter(exp_dir.glob("power_*.csv")), None)
     if power_csv is None:
@@ -1243,12 +1246,6 @@ def compute_power_metrics(
     if inf:
         if n_images:
             inf["energy_per_image_J"] = round(inf["energy_J"] / n_images, 6)
-        if baseline_power_w is not None and inf["avg_power_W"] is not None:
-            net_w = inf["avg_power_W"] - baseline_power_w
-            inf["net_avg_power_W"] = round(net_w, 4)
-            inf["net_energy_J"] = round(net_w * inf["duration_s"], 4)
-            if n_images:
-                inf["net_energy_per_image_J"] = round(net_w * inf["duration_s"] / n_images, 6)
         metrics["inference_window"] = inf
     elif not window:
         metrics["note"] = "no resource_usage_*.csv → inference window unavailable; check clock sync"
@@ -1295,7 +1292,6 @@ def _legacy_run_pipeline(cfg: Dict, results_dir: Path, dry_run: bool = False, cl
     total          = len(experiments)
 
     power_cfg      = cfg.get("power", {})
-    baseline_w     = power_cfg.get("baseline_power_w")
     test_per_class = cfg.get("test_images_per_class", 0)
 
     print(f"\n{'='*60}")
@@ -1306,8 +1302,7 @@ def _legacy_run_pipeline(cfg: Dict, results_dir: Path, dry_run: bool = False, cl
     if test_per_class:
         print(f"Test   : {test_per_class} images/class from held-out test split (seeded per run)")
     if power_cfg.get("enabled"):
-        print(f"Power  : {power_cfg.get('port', 'COM3')} @ {power_cfg.get('rate', 5.0)} Hz"
-              + (f"  (idle baseline {baseline_w} W)" if baseline_w is not None else ""))
+        print(f"Power  : {power_cfg.get('port', 'COM3')} @ {power_cfg.get('rate', 8.0)} Hz")
     print(f"{'='*60}")
 
     if dry_run:
@@ -1376,7 +1371,7 @@ def _legacy_run_pipeline(cfg: Dict, results_dir: Path, dry_run: bool = False, cl
             if power_cfg.get("enabled"):
                 n_images = _count_inferences(result_csv)
                 power_metrics = compute_power_metrics(
-                    result_csv.parent, n_images=n_images, baseline_power_w=baseline_w,
+                    result_csv.parent, n_images=n_images,
                 )
                 inf = power_metrics.get("inference_window", {})
                 if inf:
@@ -1558,7 +1553,6 @@ def _run_scenario(
     nats_url: str,
     result_timeout: int,
     power_cfg: Dict,
-    baseline_w: Optional[float],
     dry_run: bool,
     clean: bool,
 ) -> List[Dict]:
@@ -1701,7 +1695,7 @@ def _run_scenario(
             if power_cfg.get("enabled"):
                 n_images = _count_inferences(result_csv)
                 power_metrics = compute_power_metrics(
-                    result_csv.parent, n_images=n_images, baseline_power_w=baseline_w,
+                    result_csv.parent, n_images=n_images,
                 )
                 inf = power_metrics.get("inference_window", {})
                 if inf:
@@ -1779,7 +1773,6 @@ def run_pipeline(cfg: Dict, results_dir: Path, dry_run: bool = False, clean: boo
     nats_url       = cfg.get("nats_url", "nats://localhost:4222")
     result_timeout = cfg.get("result_timeout_seconds", 1800)
     power_cfg      = cfg.get("power", {})
-    baseline_w     = power_cfg.get("baseline_power_w")
 
     runs = _scenario_runs(cfg)
     total = sum(len(experiments) for _, _, experiments, _ in runs)
@@ -1790,8 +1783,7 @@ def run_pipeline(cfg: Dict, results_dir: Path, dry_run: bool = False, clean: boo
     print(f"NATS   : {nats_url}")
     print(f"Results: {results_dir}")
     if power_cfg.get("enabled"):
-        print(f"Power  : {power_cfg.get('port', 'COM3')} @ {power_cfg.get('rate', 5.0)} Hz"
-              + (f"  (idle baseline {baseline_w} W)" if baseline_w is not None else ""))
+        print(f"Power  : {power_cfg.get('port', 'COM3')} @ {power_cfg.get('rate', 8.0)} Hz")
     print(f"{'='*60}")
 
     if clean and not dry_run:
@@ -1809,7 +1801,6 @@ def run_pipeline(cfg: Dict, results_dir: Path, dry_run: bool = False, clean: boo
             nats_url=nats_url,
             result_timeout=result_timeout,
             power_cfg=power_cfg,
-            baseline_w=baseline_w,
             dry_run=dry_run,
             clean=clean,
         )
@@ -1837,38 +1828,6 @@ def run_pipeline(cfg: Dict, results_dir: Path, dry_run: bool = False, clean: boo
     print(f"{'='*60}")
 
 
-def measure_baseline(cfg: Dict, seconds: float) -> None:
-    """Log idle Pi power for `seconds` and print the mean — gives P_idle for net energy.
-
-    Run this once with the Pi booted and deployment-receiver listening, but NOT
-    running any inference. Put the printed value into power.baseline_power_w.
-    """
-    power_cfg = cfg.get("power", {})
-    port = power_cfg.get("port", "COM3")
-    rate = power_cfg.get("rate", 5.0)
-    out_csv = ensure_dir(DEFAULT_RESULTS_DIR) / "baseline_power.csv"
-
-    from dsp3005_reader import PowerLogger
-    print(f"[BASELINE] Logging idle power on {port} @ {rate} Hz for {seconds}s → {out_csv}")
-    logger = PowerLogger(out_csv, port=port, rate=rate)
-    logger.start()
-    deadline = time.time() + seconds
-    try:
-        while time.time() < deadline:
-            time.sleep(0.5)
-    except KeyboardInterrupt:
-        print("\n[BASELINE] Interrupted early.")
-    logger.stop()
-
-    ts, pw = _read_power_csv(out_csv)
-    if pw:
-        mean_w = sum(pw) / len(pw)
-        print(f"\n[BASELINE] P_idle = {mean_w:.4f} W  (n={len(pw)} samples)")
-        print(f"[BASELINE] Set  \"baseline_power_w\": {mean_w:.4f}  in benchmark_config.json")
-    else:
-        print(f"[BASELINE] No samples captured. Check device/port. error={logger.error}")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="KNN Sweet Spot Benchmark Pipeline")
     parser.add_argument("--config",      type=Path, default=DEFAULT_CONFIG,
@@ -1877,8 +1836,6 @@ def main() -> None:
                         help="Directory to store results")
     parser.add_argument("--dry-run",     action="store_true",
                         help="Print planned experiments without executing")
-    parser.add_argument("--measure-baseline", type=float, metavar="SECONDS",
-                        help="Measure idle Pi power for N seconds and exit (gives P_idle)")
     parser.add_argument("--clean-results", action="store_true",
                         help="Delete all previous exp_* result folders before the sweep "
                              "(keeps results/analysis/ and the baseline). Use for a fresh run.")
@@ -1893,10 +1850,6 @@ def main() -> None:
         sys.exit(1)
 
     cfg = load_benchmark_config(args.config)
-
-    if args.measure_baseline:
-        measure_baseline(cfg, args.measure_baseline)
-        return
 
     if args.rerun_completed:
         cfg["skip_completed"] = False

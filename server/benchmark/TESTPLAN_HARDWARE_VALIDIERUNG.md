@@ -404,33 +404,28 @@ produktive `benchmark_config.json` überschreiben):
     "enabled": true,
     "required": true,
     "port": "COM<N-aus-4.7>",
-    "rate": 8.0,
-    "baseline_power_w": null
+    "rate": 8.0
   }
 }
 ```
 
 `test_images_per_class: 5` statt der produktiven 20, damit der Testlauf schnell bleibt
-(v. a. Imagenette 224×224 ist auf dem Pi Zero 2W langsam). `baseline_power_w: null`
-bewusst, siehe Schritt 6.1.
+(v. a. Imagenette 224×224 ist auf dem Pi Zero 2W langsam).
 
 ---
 
 ## 6. Durchführung
 
-### 6.1 Idle-Baseline messen — **entfällt für diesen Testlauf**
+### 6.1 Idle-Baseline messen — **entfällt, Feld wurde entfernt**
 
-`--measure-baseline`/`power.baseline_power_w` speist ausschließlich die **alte**,
-globale Baseline-Korrektur (`net_avg_power_W`/`net_energy_per_image_J`, in
-`analyze_benchmark.py` bereits selbst als `# global-baseline, legacy` markiert,
-Zeilen 589/591). Die **neue** Korrektur, auf die es ankommt
-(`net_avg_power_W_local`/`EDP`), kommt automatisch aus den `run_baseline_block()`-
-Leerlaufläufen, die ohnehin vor/nach jeder Zelle passieren — dafür ist keine manuelle
-Messung nötig. `test_config_validation.json` lässt `power.baseline_power_w: null`
-bewusst so stehen; `compute_power_metrics()` überspringt die (legacy) `net_*`-Felder
-dann einfach (keine Exception, siehe Zeile 1246). Siehe
-[`PROMPT_BASELINE_CLEANUP.md`](PROMPT_BASELINE_CLEANUP.md) — dort geht es darum, diesen
-alten Pfad in einer separaten Session ganz zu entfernen.
+Die alte, manuelle, globale Baseline-Korrektur (`--measure-baseline`-Flag,
+`power.baseline_power_w`-Config-Feld, `net_avg_power_W`/`net_energy_per_image_J`) ist seit
+[`PROMPT_BASELINE_CLEANUP.md`](PROMPT_BASELINE_CLEANUP.md) vollständig aus dem Code entfernt
+(`benchmark_pipeline.py`, `analysis/analyze_benchmark.py`, `benchmark_config.json`). Es gibt
+also weder das CLI-Flag noch das Config-Feld mehr — kein manueller Messschritt nötig. Die
+**einzige** Baseline-Korrektur, auf die es ankommt (`net_avg_power_W_local`/`EDP`), kommt
+automatisch aus den `run_baseline_block()`-Leerlaufläufen, die ohnehin vor/nach jeder Zelle
+passieren.
 
 ### 6.2 Dry-Run (prüft Pfade/Konfiguration, ohne den Pi anzufassen)
 
@@ -552,8 +547,8 @@ Sobald Abschnitt 7 abgehakt und plausibel ist:
 
 1. `test_config_validation.json` und `results_validation/` können gelöscht werden — sie
    waren nur zur Validierung gedacht.
-2. Produktive `benchmark_config.json` mit dem frisch gemessenen `baseline_power_w`
-   (Schritt 6.1) und dem richtigen `power.port` aktualisieren.
+2. Produktive `benchmark_config.json` mit dem richtigen `power.port` aktualisieren
+   (`baseline_power_w` gibt es nicht mehr, siehe Schritt 6.1 — nichts einzutragen).
 3. Alte, **vor dem Result-Attribution-Fix erhobene** Daten in `server/benchmark/results/`
    verwerfen (laut `README.md` ohnehin geplant — "All experiments are being fully re-run
    regardless"):

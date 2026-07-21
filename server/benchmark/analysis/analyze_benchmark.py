@@ -381,9 +381,10 @@ def _local_baseline_power_w(
     fallback: Optional[float],
 ) -> Optional[float]:
     """Mean of the baseline block(s) immediately bracketing this experiment's time
-    window. Falls back to the global config baseline_power_w (or None) if no
+    window. Returns `fallback` (always None from the current call site) if no
     bracketing block is found, e.g. for result sets collected before baseline
-    blocks existed.
+    blocks existed — there is no global config value to fall back to anymore
+    (see PROMPT_BASELINE_CLEANUP.md).
     """
     matched = _bracketing_blocks(blocks, started_at_iso, result_received_at_iso)
     if not matched:
@@ -586,18 +587,15 @@ def load_experiment(exp_dir: Path) -> Optional[Dict]:
     inf = power.get("inference_window", {}) or {}
     full = power.get("full_window", {}) or {}
     row["avg_power_W"]              = inf.get("avg_power_W")
-    row["net_avg_power_W"]          = inf.get("net_avg_power_W")   # global-baseline, legacy
     row["energy_per_image_J"]       = inf.get("energy_per_image_J")
-    row["net_energy_per_image_J"]   = inf.get("net_energy_per_image_J")  # global-baseline, legacy
     row["inference_duration_s"]     = inf.get("duration_s") or full.get("duration_s")
 
     # ── Local (warm, time-bracketed) baseline correction + EDP ───────────────
-    # net_avg_power_W above used the single global config baseline_power_w; this
-    # recomputes it from the nearest warm-idle baseline_* blocks in the same
-    # scenario dir instead (see _local_baseline_power_w). EDP = P_bar * T_bar,
-    # scope-matched: net power over the same window as latency_ms_mean (both
-    # "compute-attributable", not diluted by the delay_ms idle time — see
-    # project discussion on EDP scale-matching).
+    # Net power is computed from the nearest warm-idle baseline_* blocks in the
+    # same scenario dir (see _local_baseline_power_w) — not a single global
+    # config value. EDP = P_bar * T_bar, scope-matched: net power over the same
+    # window as latency_ms_mean (both "compute-attributable", not diluted by
+    # the delay_ms idle time — see project discussion on EDP scale-matching).
     blocks = _load_baseline_blocks(exp_dir.parent)
     local_baseline_w = _local_baseline_power_w(
         blocks, meta.get("started_at"), meta.get("result_received_at"),
@@ -710,9 +708,7 @@ METRICS = [
     ("precision_macro",       "Precision (macro)"),
     ("recall_macro",          "Recall (macro)"),
     ("f1_macro",              "F1 (macro)"),
-    ("net_energy_per_image_J","Net energy per image (J)"),
     ("avg_power_W",           "Avg power (W)"),
-    ("net_avg_power_W",       "Net avg power (W)"),
     ("cpu_percent_mean",      "CPU (%)"),
     ("memory_rss_mb_mean",    "Memory RSS (MB)"),
     ("memory_rss_mb_max",     "Peak memory RSS (MB)"),
@@ -826,7 +822,7 @@ def plot_paper_curves(agg: pd.DataFrame, fig_dir: Path):
 
     # 2×2 paper grid (accuracy, energy, memory, cpu)
     grid_metrics = [("accuracy", "Accuracy"),
-                    ("net_energy_per_image_J", "Net energy / image (J)"),
+                    ("EDP", "Energy-Delay Product (J)"),
                     ("memory_rss_mb_mean", "Memory RSS (MB)"),
                     ("cpu_percent_mean", "CPU (%)")]
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -1088,9 +1084,9 @@ def compute_suitability(
 def pca_effect(summary: pd.DataFrame) -> Dict:
     """Paired comparison PCA vs no-PCA at matched (samples_per_class, seed)."""
     piv = summary.pivot_table(index=["samples_per_class", "seed"],
-                              columns="pca_label", values=["accuracy", "net_energy_per_image_J"])
+                              columns="pca_label", values=["accuracy", "EDP"])
     out = {}
-    for metric in ["accuracy", "net_energy_per_image_J"]:
+    for metric in ["accuracy", "EDP"]:
         try:
             cols = piv[metric].columns.tolist()
         except KeyError:
@@ -1166,8 +1162,9 @@ def write_report(summary: pd.DataFrame, agg: pd.DataFrame,
                  "regardless of how tight the seed-CI looks.")
     lines.append("- PCA vs no-PCA is compared **paired** at matched (samples, seed) using the "
                  "Wilcoxon signed-rank test where ≥5 pairs are available.")
-    lines.append("- **Energy** is the external Voltcraft measurement, baseline-subtracted "
-                 "(`net_energy_per_image_J`) → marginal cost of one inference, independent of duty cycle.")
+    lines.append("- **Energy** is the external Voltcraft measurement, baseline-subtracted against "
+                 "the local warm-idle blocks bracketing each cell (`EDP`) → marginal cost of one "
+                 "inference, independent of duty cycle.")
     lines.append("- **CPU%** is the system-wide, duty-cycled value at the configured rover cadence "
                  "(not peak inference CPU).")
     lines.append("- **Memory (RSS)** includes the Python+TFLite runtime (~tens of MB); the marginal "
@@ -1201,7 +1198,7 @@ def write_report(summary: pd.DataFrame, agg: pd.DataFrame,
     lines.append("## 5. Aggregated table (mean over seeds)\n")
     show_cols = ["pca_label", "samples_per_class", "n_seeds",
                  "accuracy_mean", "accuracy_ci95",
-                 "net_energy_per_image_J_mean", "cpu_percent_mean_mean",
+                 "cpu_percent_mean_mean",
                  "memory_rss_mb_mean_mean", "latency_ms_mean_mean",
                  "EDP_mean", "EDP_ci95", "EDP_ci95_systematic"]
     show_cols = [c for c in show_cols if c in agg.columns]

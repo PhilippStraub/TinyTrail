@@ -393,6 +393,12 @@ server/benchmark/results/
   benchmark_summary.json
   scenario_cifar10_knn_benchmark/
     benchmark_summary.json
+    baseline_000/
+      baseline_summary.json
+      baseline_000_run1/
+        power_*.csv, resource_usage_*.csv, merged_analysis_*.csv, ...
+      baseline_000_run2/
+      baseline_000_run3/
     exp_001_pca31_spc2_s42/
       merged_analysis_*.csv
       resource_usage_*.csv
@@ -400,6 +406,9 @@ server/benchmark/results/
       drift_detection_*.csv
       power_exp_001_pca31_spc2_s42.csv
       experiment_metadata.json
+    baseline_001/
+      baseline_summary.json
+      ...
   scenario_cifar10_nearest_centroid/
     benchmark_summary.json
     exp_001_pca31_spc2_s42/
@@ -412,6 +421,14 @@ server/benchmark/results/
 
 Root `benchmark_summary.json` summarizes all scenarios. Each scenario also gets its own
 `benchmark_summary.json`.
+
+A `baseline_NNN/` folder is deployed automatically before the first
+`(pca, samples_per_class)` cell and after every subsequent one — 3 idle runs
+(`application.baseline_mode=true`) whose mean power becomes the **local baseline** that
+nets out idle draw for every experiment it brackets (`net_avg_power_W_local`, `EDP` in
+the analysis). No manual idle-power measurement step is needed. See
+[`analysis/README.md`](analysis/README.md) §2.1 for the `baseline_summary.json` field
+reference and §5 for how the correction is computed.
 
 ## Result Attribution & Energy-Data Integrity (2026-07-20)
 
@@ -664,19 +681,10 @@ Clean previous `exp_*` folders before a fresh run:
 & $py benchmark_pipeline.py --clean-results
 ```
 
-Measure idle Pi power:
-
-```powershell
-& $py benchmark_pipeline.py --measure-baseline 60
-```
-
-Copy the printed idle power into:
-
-```json
-"power": {
-  "baseline_power_w": 0.6140
-}
-```
+The idle-power (baseline) correction no longer needs a manual measurement step — the
+pipeline automatically deploys 3 idle runs before the first and after every
+`(pca, samples_per_class)` cell and derives the net power from those bracketing blocks
+(see `analysis/README.md` §5).
 
 ## Current Default Config
 
