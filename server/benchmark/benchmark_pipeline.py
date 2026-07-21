@@ -753,8 +753,16 @@ def prepare_deployment(
     seed: int = 42,
     test_images_per_class: int = 0,
     pca_label: Optional[str] = None,
+    baseline_mode: bool = False,
 ) -> None:
-    """Copy all artifacts to raw_data and write a patched config.json."""
+    """Copy all artifacts to raw_data and write a patched config.json.
+
+    baseline_mode=True patches application.baseline_mode into the deployed config,
+    which makes main.py skip the feature-extractor/classifier call while leaving
+    setup, delay_ms pacing, and resource/power logging unchanged (see main.py's
+    baseline_mode branch) — used for warm-idle baseline deployments, not real
+    experiments.
+    """
     config = _load_base_config(ctx)
     _copy_static_scenario_artifacts(ctx)
 
@@ -780,6 +788,8 @@ def prepare_deployment(
     if "image_input" in config:
         config["image_input"]["shuffle_seed"] = seed
 
+    config.setdefault("application", {})["baseline_mode"] = baseline_mode
+
     with open(ctx.raw_data_dir / "config.json", "w") as f:
         json.dump(config, f, indent=2)
 
@@ -796,15 +806,134 @@ def prepare_deployment(
             "samples_per_class":     samples_per_class,
             "seed":                  seed,
             "test_images_per_class": test_images_per_class,
+            "baseline_mode":         baseline_mode,
             "deployed_at":           datetime.now().isoformat(),
         }, f, indent=2)
 
     print(f"[DEPLOY:{ctx.name}] Artifacts ready for {experiment_id}")
 
 
+def run_baseline_block(
+    ctx: ScenarioContext,
+    scenario_cfg: Dict,
+    scenario_results: Path,
+    device_id: str,
+    nats_url: str,
+    result_timeout: int,
+    power_cfg: Dict,
+    block_index: int,
+    n: int = 3,
+) -> Dict:
+    """Deploy `n` warm-idle baseline runs bracketing a samples_per_class cell.
+
+    Reuses the normal create_initial_state/prepare_deployment/collect_result path
+    so the deployed harness (setup, delay_ms pacing, resource/power logging) is
+    identical to a real experiment — only the classifier/feature-extractor call is
+    skipped (application.baseline_mode=true, see main.py). This only collects the
+    raw power/resource traces; net-energy correction using these blocks happens at
+    analysis time in analyze_benchmark.py, not here.
+    """
+    baseline_dir = scenario_results / f"baseline_{block_index:03d}"
+    ensure_dir(baseline_dir)
+
+    test_per_class = scenario_cfg.get("test_images_per_class", 0)
+    spc = min(scenario_cfg.get("samples_per_class", [2]) or [2])
+    seed = (scenario_cfg.get("seeds") or [42])[0]
+
+    create_initial_state(ctx, spc, False, None, seed=seed)
+
+    runs: List[Dict] = []
+    for k in range(1, n + 1):
+        run_id = f"baseline_{block_index:03d}_run{k}"
+        prepare_deployment(ctx, False, None, spc, run_id, seed=seed,
+                           test_images_per_class=test_per_class,
+                           pca_label="nopca", baseline_mode=True)
+        result_csv, clock_offset = collect_result(nats_url, device_id, ctx.name, run_id,
+                                    result_timeout, baseline_dir, power_cfg)
+        entry: Dict = {"run_id": run_id, "status": "OK" if result_csv else "TIMEOUT",
+                       "clock_offset": clock_offset}
+        if result_csv and power_cfg.get("enabled"):
+            n_images = _count_inferences(result_csv)
+            entry["power"] = compute_power_metrics(
+                result_csv.parent, n_images=n_images, baseline_power_w=None,
+            )
+        runs.append(entry)
+        print(f"[BASELINE:{ctx.name}] block {block_index} {k}/{n} -> {entry['status']}")
+
+    avg_powers = [
+        r["power"]["inference_window"]["avg_power_W"]
+        for r in runs
+        if r.get("power", {}).get("inference_window", {}).get("avg_power_W") is not None
+    ]
+    # One clock_offset measurement is taken per run (see _measure_clock_offset,
+    # invoked inside _subscribe_deploy_collect); the block-level value picks the
+    # one with the smallest round_trip_s, same NTP "fastest reply wins" convention.
+    valid_offsets = [
+        r["clock_offset"] for r in runs
+        if r.get("clock_offset", {}).get("offset_s") is not None
+    ]
+    block_clock_offset = (
+        min(valid_offsets, key=lambda c: c["round_trip_s"]) if valid_offsets else None
+    )
+    summary = {
+        "block_index": block_index,
+        "scenario_name": ctx.name,
+        "n_deployments": n,
+        "n_ok": sum(1 for r in runs if r["status"] == "OK"),
+        "avg_power_W_mean": (sum(avg_powers) / len(avg_powers)) if avg_powers else None,
+        "avg_power_W_values": avg_powers,
+        "clock_offset": block_clock_offset,
+        "recorded_at": datetime.now().isoformat(),
+        "runs": runs,
+    }
+    with open(baseline_dir / "baseline_summary.json", "w") as f:
+        json.dump(summary, f, indent=2)
+    print(f"[BASELINE:{ctx.name}] block {block_index}: {summary['n_ok']}/{n} OK, "
+          f"avg_power_W_mean={summary['avg_power_W_mean']}")
+    return summary
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Phase 4 – Deploy + collect result via NATS (no Analytical-Data-Processor needed)
 # ──────────────────────────────────────────────────────────────────────────────
+
+async def _measure_clock_offset(nc, device_id: str, n_pings: int = 7) -> Dict:
+    """NTP-style round-trip clock offset measurement against the Pi's
+    time.sync.<device_id> responder (client/deployment-receiver.py). Returns
+    the min-round-trip sample plus median/std across all pings as an
+    uncertainty indicator. offset_s = Pi clock - PC clock (see
+    PLAN_ZEIT_HANDSHAKE.md for sign convention and correction formula)."""
+    import numpy as np
+
+    samples = []
+    for _ in range(n_pings):
+        t1 = time.time()
+        try:
+            reply = await nc.request(f"time.sync.{device_id}", b"", timeout=2.0)
+            t3 = time.time()
+            pi_time = json.loads(reply.data.decode())["pi_time"]
+            round_trip = t3 - t1
+            offset = pi_time - (t1 + t3) / 2.0
+            samples.append({"t1": t1, "t3": t3, "pi_time": pi_time,
+                            "round_trip_s": round_trip, "offset_s": offset})
+        except Exception as e:
+            samples.append({"error": str(e)})
+    valid = [s for s in samples if "offset_s" in s]
+    if not valid:
+        return {"offset_s": None, "error": "no valid ping succeeded", "samples": samples}
+    best = min(valid, key=lambda s: s["round_trip_s"])
+    offsets = [s["offset_s"] for s in valid]
+    return {
+        "offset_s": best["offset_s"],
+        "round_trip_s": best["round_trip_s"],
+        "offset_median_s": float(np.median(offsets)),
+        "offset_std_s": float(np.std(offsets, ddof=1)) if len(offsets) > 1 else None,
+        "n_pings": n_pings,
+        "n_valid": len(valid),
+        "measured_at": datetime.now().isoformat(),
+        "samples": samples,
+    }
+
 
 async def _subscribe_deploy_collect(
     nats_url: str,
@@ -814,18 +943,25 @@ async def _subscribe_deploy_collect(
     timeout_seconds: int,
     results_dir: Path,
     power_cfg: Optional[Dict] = None,
-) -> Optional[Path]:
+) -> Tuple[Optional[Path], Dict]:
     """
     1. Subscribe to analysis.logs.{device_id} (deliver_policy=new)
     2. Deploy in a thread executor so the event loop stays alive
     3. Wait for a ZIP containing merged_analysis_{experiment_id}*.csv
     4. Save all files from the ZIP into results_dir/{scenario_name}/{experiment_id}/
+
+    Returns (received_csv, clock_offset) — clock_offset is the NTP-style PC<->Pi
+    offset measured right after connecting, before any deploy/stream traffic
+    can add asymmetric latency (see _measure_clock_offset).
     """
     from nats.aio.client import Client as NATS
     from nats.js.api import ConsumerConfig, AckPolicy, DeliverPolicy, StreamConfig
 
     nc = NATS()
     await nc.connect(nats_url)
+
+    clock_offset = await _measure_clock_offset(nc, device_id)
+
     js = nc.jetstream()
 
     # ANALYSIS stream must use `limits` retention so we can subscribe with
@@ -1006,7 +1142,7 @@ async def _subscribe_deploy_collect(
         pass
     await nc.drain()
 
-    return received_csv
+    return received_csv, clock_offset
 
 
 def collect_result(
@@ -1017,7 +1153,7 @@ def collect_result(
     timeout_seconds: int,
     results_dir: Path,
     power_cfg: Optional[Dict] = None,
-) -> Optional[Path]:
+) -> Tuple[Optional[Path], Dict]:
     """Synchronous wrapper — runs the async subscribe+deploy+collect in a fresh event loop."""
     return asyncio.run(_subscribe_deploy_collect(
         nats_url, device_id, scenario_name, experiment_id, timeout_seconds, results_dir, power_cfg,
@@ -1480,6 +1616,17 @@ def _run_scenario(
     for pca_label, pca_target in sorted(needed_pca):
         ensure_feature_processor(ctx, pca_target, base_config, pca_label=pca_label)
 
+    def _maybe_run_baseline(idx: int) -> None:
+        block_dir = scenario_results / f"baseline_{idx:03d}"
+        if (block_dir / "baseline_summary.json").exists():
+            print(f"[BASELINE:{ctx.name}] block {idx} already recorded, skipping.")
+            return
+        run_baseline_block(ctx, scenario_cfg, scenario_results, device_id, nats_url,
+                           result_timeout, power_cfg, idx, n=3)
+
+    baseline_block_index = 0
+    prev_cell: Optional[Tuple[str, int]] = None
+
     summary: List[Dict] = []
     completed_ids = set()
     if skip_completed:
@@ -1511,6 +1658,12 @@ def _run_scenario(
         idx               = f"{i+1:03d}"
         experiment_id     = _experiment_id(i, exp)
 
+        cell = (pca_label, samples_per_class)
+        if cell != prev_cell:
+            _maybe_run_baseline(baseline_block_index)
+            baseline_block_index += 1
+            prev_cell = cell
+
         if experiment_id in completed_ids:
             print(f"[SKIP] {ctx.name}/{experiment_id} already has metadata + merged_analysis.")
             continue
@@ -1532,7 +1685,7 @@ def _run_scenario(
                            pca_label=pca_label)
 
         started_at = time.time()
-        result_csv = collect_result(nats_url, device_id, ctx.name, experiment_id,
+        result_csv, clock_offset = collect_result(nats_url, device_id, ctx.name, experiment_id,
                                     result_timeout, scenario_results, power_cfg)
 
         pca_explained_variance = None
@@ -1572,6 +1725,7 @@ def _run_scenario(
                     "result_received_at":       datetime.now().isoformat(),
                     "pca_explained_variance_%": pca_explained_variance,
                     "power":                    power_metrics,
+                    "clock_offset":             clock_offset,
                 }, f, indent=2)
             print(f"[{idx}/{total}]  Saved to {result_csv.parent.relative_to(PROJECT_ROOT)}")
             status = "OK"
@@ -1603,6 +1757,8 @@ def _run_scenario(
                 f"Aborting after timeout in {ctx.name}/{experiment_id}. "
                 "No result ZIP was received from the Pi."
             )
+
+    _maybe_run_baseline(baseline_block_index)  # bracket the last cell too
 
     _write_summary(
         scenario_results / "benchmark_summary.json",

@@ -327,6 +327,105 @@ def _confusion_counts(df: pd.DataFrame) -> Optional[Dict]:
     }
 
 
+def _load_baseline_blocks(scenario_dir: Path) -> List[Dict]:
+    """All baseline_NNN/baseline_summary.json in a scenario dir, sorted by time.
+
+    Written by benchmark_pipeline.py's run_baseline_block() — one warm-idle block
+    (n deployments, application.baseline_mode=true) before the first sample-size
+    cell and after every cell. See _local_baseline_power_w() for how these are
+    matched to a given experiment's time window.
+    """
+    blocks: List[Dict] = []
+    for d in sorted(scenario_dir.glob("baseline_*")):
+        summary_path = d / "baseline_summary.json"
+        if not summary_path.exists():
+            continue
+        try:
+            data = json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("avg_power_W_mean") is not None:
+            blocks.append(data)
+    blocks.sort(key=lambda b: b.get("recorded_at", ""))
+    return blocks
+
+
+def _local_baseline_power_w(
+    blocks: List[Dict],
+    started_at_iso: Optional[str],
+    result_received_at_iso: Optional[str],
+    fallback: Optional[float],
+) -> Optional[float]:
+    """Mean of the baseline block(s) immediately bracketing this experiment's time
+    window — the "Mittelwert der beiden Randbloecke" design: one warm-idle
+    measurement right before the run started, one right after it finished. Falls
+    back to the global config baseline_power_w (or None) if no bracketing block
+    is found, e.g. for result sets collected before baseline blocks existed.
+    """
+    if not blocks or not started_at_iso:
+        return fallback
+    end_iso = result_received_at_iso or started_at_iso
+    before = [b for b in blocks if b.get("recorded_at", "") <= started_at_iso]
+    after  = [b for b in blocks if b.get("recorded_at", "") >= end_iso]
+    vals = []
+    if before:
+        vals.append(before[-1]["avg_power_W_mean"])
+    if after:
+        vals.append(after[0]["avg_power_W_mean"])
+    if not vals:
+        return fallback
+    return float(np.mean(vals))
+
+
+def _offset_corrected_power_metrics(exp_dir: Path, meta: Dict, n_images: Optional[int]) -> Dict:
+    """Re-integrate the raw power_*.csv over the inference window, shifted by
+    the measured PC<->Pi clock offset (T_pc_equiv = T_pi - offset_s) instead of
+    trusting the two clocks to already agree — see PLAN_ZEIT_HANDSHAKE.md and
+    MESSMETHODIK_ZEITSYNCHRONISATION.md for the NTP-style handshake and sign
+    convention. Falls back to {} (caller keeps the uncorrected
+    meta["power"]["inference_window"]) when no clock_offset was measured for
+    this run, e.g. data collected before this feature existed.
+    """
+    offset = (meta.get("clock_offset") or {}).get("offset_s")
+    if offset is None:
+        return {}
+
+    res_csv = next(iter(exp_dir.glob("resource_usage_*.csv")), None)
+    power_csv = next(iter(exp_dir.glob("power_*.csv")), None)
+    if res_csv is None or power_csv is None:
+        return {}
+
+    import csv as _csv
+    pi_times = []
+    with open(res_csv, newline="") as f:
+        for row in _csv.DictReader(f):
+            try:
+                pi_times.append(float(row["timestamp_unix"]))
+            except (ValueError, KeyError):
+                continue
+    if not pi_times:
+        return {}
+    t0_pc = min(pi_times) - offset
+    t1_pc = max(pi_times) - offset
+
+    ts, pw = _read_power_csv(power_csv)
+    sel = [(t, p) for t, p in zip(ts, pw) if t0_pc <= t <= t1_pc]
+    if len(sel) < 2:
+        return {}
+    energy = sum((pa + pb) / 2.0 * (tb - ta)
+                 for (ta, pa), (tb, pb) in zip(sel, sel[1:]))
+    duration = sel[-1][0] - sel[0][0]
+    result = {
+        "energy_J_offset_corrected": round(energy, 4),
+        "avg_power_W_offset_corrected": round(energy / duration, 4) if duration > 0 else None,
+        "duration_s_offset_corrected": round(duration, 3),
+        "offset_applied_s": offset,
+    }
+    if n_images:
+        result["energy_per_image_J_offset_corrected"] = round(energy / n_images, 6)
+    return result
+
+
 def load_experiment(exp_dir: Path) -> Optional[Dict]:
     """Return one flat dict of metrics for a single experiment, or None if incomplete."""
     meta_path = exp_dir / "experiment_metadata.json"
@@ -400,8 +499,9 @@ def load_experiment(exp_dir: Path) -> Optional[Dict]:
         lat = pd.to_numeric(df["latency_ms"], errors="coerce").dropna()
         row["latency_ms_mean"] = float(lat.mean())
         row["latency_ms_p95"]  = float(lat.quantile(0.95))
+        row["latency_sum_ms"]  = float(lat.sum())
     else:
-        row["latency_ms_mean"] = row["latency_ms_p95"] = np.nan
+        row["latency_ms_mean"] = row["latency_ms_p95"] = row["latency_sum_ms"] = np.nan
 
     # ── CPU (system-wide, duty-cycled at the rover cadence) ─────────────────
     if "cpu_percent_total" in df.columns:
@@ -441,10 +541,55 @@ def load_experiment(exp_dir: Path) -> Optional[Dict]:
     inf = power.get("inference_window", {}) or {}
     full = power.get("full_window", {}) or {}
     row["avg_power_W"]              = inf.get("avg_power_W")
-    row["net_avg_power_W"]          = inf.get("net_avg_power_W")
+    row["net_avg_power_W"]          = inf.get("net_avg_power_W")   # global-baseline, legacy
     row["energy_per_image_J"]       = inf.get("energy_per_image_J")
-    row["net_energy_per_image_J"]   = inf.get("net_energy_per_image_J")
+    row["net_energy_per_image_J"]   = inf.get("net_energy_per_image_J")  # global-baseline, legacy
     row["inference_duration_s"]     = inf.get("duration_s") or full.get("duration_s")
+
+    # ── Local (warm, time-bracketed) baseline correction + EDP ───────────────
+    # net_avg_power_W above used the single global config baseline_power_w; this
+    # recomputes it from the nearest warm-idle baseline_* blocks in the same
+    # scenario dir instead (see _local_baseline_power_w). EDP = P_bar * T_bar,
+    # scope-matched: net power over the same window as latency_ms_mean (both
+    # "compute-attributable", not diluted by the delay_ms idle time — see
+    # project discussion on EDP scale-matching).
+    blocks = _load_baseline_blocks(exp_dir.parent)
+    local_baseline_w = _local_baseline_power_w(
+        blocks, meta.get("started_at"), meta.get("result_received_at"),
+        fallback=None,
+    )
+    row["local_baseline_power_w"] = local_baseline_w
+    if local_baseline_w is not None and row["avg_power_W"] is not None:
+        row["net_avg_power_W_local"] = row["avg_power_W"] - local_baseline_w
+    else:
+        row["net_avg_power_W_local"] = np.nan
+
+    if pd.notna(row["net_avg_power_W_local"]) and pd.notna(row["latency_ms_mean"]):
+        row["EDP"] = float(row["net_avg_power_W_local"]) * float(row["latency_ms_mean"]) / 1000.0
+    else:
+        row["EDP"] = np.nan
+
+    # ── Clock-offset correction (measured PC<->Pi handshake, see PLAN_ZEIT_HANDSHAKE.md) ──
+    # Independent of the local-baseline correction above (idle-power drift vs. clock
+    # skew are separate, non-exclusive error sources); combined into *_offset_corrected
+    # columns below. clock_offset_s/round_trip_s are always present (even None) so the
+    # measured offset can be plotted across the whole campaign as a drift check.
+    clock_offset = meta.get("clock_offset") or {}
+    row["clock_offset_s"] = clock_offset.get("offset_s")
+    row["clock_offset_round_trip_s"] = clock_offset.get("round_trip_s")
+    offset_metrics = _offset_corrected_power_metrics(exp_dir, meta, row["n_images"])
+    row.update(offset_metrics)
+    avg_power_offset = offset_metrics.get("avg_power_W_offset_corrected")
+    if avg_power_offset is not None and local_baseline_w is not None:
+        row["net_avg_power_W_offset_corrected"] = avg_power_offset - local_baseline_w
+    else:
+        row["net_avg_power_W_offset_corrected"] = np.nan
+    if pd.notna(row["net_avg_power_W_offset_corrected"]) and pd.notna(row["latency_ms_mean"]):
+        row["EDP_offset_corrected"] = (
+            float(row["net_avg_power_W_offset_corrected"]) * float(row["latency_ms_mean"]) / 1000.0
+        )
+    else:
+        row["EDP_offset_corrected"] = np.nan
 
     return row
 
@@ -515,6 +660,9 @@ METRICS = [
     ("classifier_state_kb",   "Classifier state (KB)"),
     ("support_set_kb",        "Reference support budget (KB)"),
     ("latency_ms_mean",       "Latency (ms)"),
+    ("latency_sum_ms",        "Total inference time (ms)"),
+    ("net_avg_power_W_local", "Net avg power, local baseline (W)"),
+    ("EDP",                   "Energy-Delay Product (J)"),
 ]
 
 
@@ -714,6 +862,123 @@ def find_sweet_spot(agg: pd.DataFrame, frac: float = 0.99) -> Dict:
                 "target_accuracy": float(target),
                 "sweet_spot_samples_per_class": int(reached["samples_per_class"].iloc[0]),
             }
+    return out
+
+
+def find_robust_saturation_point(agg: pd.DataFrame, frac: float = 0.95) -> Dict:
+    """Robust saturation point s*: smallest samples-per-class stage whose mean
+    accuracy reaches `frac` of the max mean accuracy AND whose margin above that
+    threshold exceeds the standard error of the mean (SEM) at that stage.
+
+    The SEM check guards against picking a stage that only clears the threshold
+    due to seed noise — the same size-2 cell that happens to score high by luck.
+    Uses accuracy_std/n_seeds already produced by aggregate(); a stage without
+    that data (n_seeds<2) is accepted on the threshold alone, since robustness
+    can't be assessed there.
+    """
+    out = {}
+    label_col = "plot_label" if "plot_label" in agg.columns else "pca_label"
+    for label, sub in agg.groupby(label_col):
+        sub = sub.sort_values("samples_per_class")
+        acc = sub["accuracy_mean"]
+        if acc.notna().sum() == 0:
+            continue
+        max_acc = float(acc.max())
+        target = frac * max_acc
+
+        s_star = None
+        for _, r in sub.iterrows():
+            if pd.isna(r["accuracy_mean"]) or r["accuracy_mean"] < target:
+                continue
+            margin = r["accuracy_mean"] - target
+            std = r.get("accuracy_std")
+            n_seeds = r.get("n_seeds")
+            if pd.notna(std) and n_seeds and n_seeds > 1:
+                sem = std / (n_seeds ** 0.5)
+            else:
+                sem = 0.0
+            if margin > sem:
+                s_star = int(r["samples_per_class"])
+                break
+
+        if s_star is not None:
+            out[label] = {
+                "max_accuracy": max_acc,
+                "target_accuracy": float(target),
+                "robust_saturation_samples_per_class": s_star,
+            }
+    return out
+
+
+def compute_suitability(
+    agg: pd.DataFrame,
+    s_min: Optional[int] = None,
+    ram_budget_mb: Optional[float] = None,
+) -> pd.DataFrame:
+    """Suitability_c = Acc_bar_c / (EDP_bar_c + sigma_EDP_c) * (s_min / s*_c) per
+    configuration c (grouped the same way `agg` already is — typically
+    classifier_type x pca_label).
+
+    EDP_bar_c/sigma_EDP_c are the mean/std of the already seed-averaged per-stage
+    EDP (aggregate()'s "EDP_mean" column) taken ACROSS samples-per-class stages —
+    sigma_EDP_c therefore captures energy-cost growth over the sample-size
+    trajectory, not seed-to-seed noise (that's already averaged out per stage).
+
+    Memory is deliberately excluded from the score; instead `feasible` is a
+    pass/fail gate against `ram_budget_mb` using the worst case (max over stages)
+    of peak RSS per configuration, not the mean — RAM grows monotonically with
+    samples_per_class for KNN, so a config can look fine on average and still
+    exceed the budget at the largest sample count.
+    """
+    label_col = "plot_label" if "plot_label" in agg.columns else "pca_label"
+    if s_min is None:
+        s_min = int(agg["samples_per_class"].min())
+
+    saturation = find_robust_saturation_point(agg, frac=0.95)
+
+    rows = []
+    for label, sub in agg.groupby(label_col):
+        sub = sub.sort_values("samples_per_class")
+        acc_bar = sub["accuracy_mean"].mean()
+
+        edp_per_stage = sub["EDP_mean"] if "EDP_mean" in sub.columns else pd.Series(dtype=float)
+        edp_valid = edp_per_stage.dropna()
+        edp_bar = edp_valid.mean() if len(edp_valid) else np.nan
+        sigma_edp = edp_valid.std(ddof=1) if len(edp_valid) > 1 else np.nan
+
+        mem_col = "memory_rss_mb_max_mean" if "memory_rss_mb_max_mean" in sub.columns else None
+        mem_feasibility = sub[mem_col].max() if mem_col else np.nan
+
+        s_star = saturation.get(label, {}).get("robust_saturation_samples_per_class")
+
+        if pd.notna(acc_bar) and pd.notna(edp_bar) and pd.notna(sigma_edp) and s_star:
+            denom = edp_bar + sigma_edp
+            suitability = (acc_bar / denom) * (s_min / s_star) if denom > 0 else np.nan
+        else:
+            suitability = np.nan
+
+        feasible = (
+            bool(mem_feasibility <= ram_budget_mb)
+            if (ram_budget_mb is not None and pd.notna(mem_feasibility))
+            else None
+        )
+
+        rows.append({
+            "config": label,
+            "accuracy_bar": acc_bar,
+            "EDP_bar": edp_bar,
+            "sigma_EDP": sigma_edp,
+            "s_star": s_star,
+            "s_min": s_min,
+            "memory_feasibility_mb": mem_feasibility,
+            "ram_budget_mb": ram_budget_mb,
+            "feasible": feasible,
+            "suitability": suitability,
+        })
+
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        out = out.sort_values("suitability", ascending=False, na_position="last")
     return out
 
 

@@ -2,6 +2,7 @@ import os
 import requests
 import zipfile
 import io
+import json
 import subprocess
 import uuid
 import shutil
@@ -333,6 +334,15 @@ async def start_consumer(device_id, deployment_manager):
 
     # Initialize transmitter and ensure stream exists
     await log_transmitter.ensure_stream_exists()
+
+    async def handle_time_sync(msg):
+        """Reply immediately with this device's current clock time — no queueing,
+        no awaits before capturing pi_time, so the reply latency stays minimal and
+        symmetric (required for the NTP-style offset formula to hold)."""
+        pi_time = time.time()
+        await msg.respond(json.dumps({"pi_time": pi_time}).encode())
+
+    await nc.subscribe(f"time.sync.{device_id}", cb=handle_time_sync)
 
     js = nc.jetstream()
     subject = f"{SUBJECT_PREFIX}.{device_id}"

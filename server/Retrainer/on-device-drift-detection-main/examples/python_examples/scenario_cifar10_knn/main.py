@@ -926,6 +926,13 @@ def main() -> None:
     verbose_frame_logging = tinylcm_config['data_logger'].get('verbose_frame_logging', False)
     json_log_file = Path(log_dir) / f"stream_{run_id}.jsonl"
     write_jsonl = bool(tinylcm_config['data_logger'].get('enabled', True))
+    baseline_mode = bool(config.get('application', {}).get('baseline_mode', False))
+    if baseline_mode:
+        logger.info(
+            'BASELINE MODE: feature-extraction/classifier calls are skipped this run. '
+            'Setup, delay_ms pacing, and resource/power logging are unchanged — only the '
+            'compute call itself is omitted, to measure warm-idle power/CPU/RAM.'
+        )
 
     frame_count = 0
     feature_dim_checked = False
@@ -958,36 +965,41 @@ def main() -> None:
             resized_frame = resize_image(frame, inference_resolution, False)
             inference_start_time = time.time()
 
-            features = feature_extractor.extract_features(resized_frame)
-            if feature_transformer is not None:
-                features = apply_feature_transformation(features)
+            if baseline_mode:
+                features = None
+                prediction = 'baseline'
+                confidence = 0.0
+            else:
+                features = feature_extractor.extract_features(resized_frame)
+                if feature_transformer is not None:
+                    features = apply_feature_transformation(features)
 
-            if not feature_dim_checked:
-                curr_dim = int(features.shape[-1]) if hasattr(features, 'shape') else len(features)
-                trained_dim = (
-                    int(classifier.X_train.shape[1])
-                    if getattr(classifier, 'X_train', None) is not None and len(classifier.X_train) > 0
-                    else None
-                )
-                if trained_dim is not None and curr_dim != trained_dim:
-                    logger.error(
-                        f'Feature dimension mismatch: runtime dim={curr_dim} vs trained dim={trained_dim}. '
-                        'Ensure processor (.npz) and initial state use identical PCA/output dims.'
+                if not feature_dim_checked:
+                    curr_dim = int(features.shape[-1]) if hasattr(features, 'shape') else len(features)
+                    trained_dim = (
+                        int(classifier.X_train.shape[1])
+                        if getattr(classifier, 'X_train', None) is not None and len(classifier.X_train) > 0
+                        else None
                     )
-                    sys.exit(2)
-                feature_dim_checked = True
+                    if trained_dim is not None and curr_dim != trained_dim:
+                        logger.error(
+                            f'Feature dimension mismatch: runtime dim={curr_dim} vs trained dim={trained_dim}. '
+                            'Ensure processor (.npz) and initial state use identical PCA/output dims.'
+                        )
+                        sys.exit(2)
+                    feature_dim_checked = True
 
-            prediction = 'unknown'
-            confidence = 0.0
-            try:
-                probas = classifier.predict_proba(np.array([features]))
-                if probas is not None and len(probas) > 0:
-                    confidence = float(np.max(probas[0]))
-                    classes = classifier.get_classes()
-                    if len(classes) > 0:
-                        prediction = classes[int(np.argmax(probas[0]))]
-            except Exception as e:
-                logger.debug(f'Error getting prediction: {e}')
+                prediction = 'unknown'
+                confidence = 0.0
+                try:
+                    probas = classifier.predict_proba(np.array([features]))
+                    if probas is not None and len(probas) > 0:
+                        confidence = float(np.max(probas[0]))
+                        classes = classifier.get_classes()
+                        if len(classes) > 0:
+                            prediction = classes[int(np.argmax(probas[0]))]
+                except Exception as e:
+                    logger.debug(f'Error getting prediction: {e}')
 
             drift_detected = False
             drift_info = None

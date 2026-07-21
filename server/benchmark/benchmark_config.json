@@ -8,7 +8,10 @@
     "scenario_cifar10_nearest_centroid",
     "scenario_imagenette_knn",
     "scenario_imagenette_kmeans",
-    "scenario_imagenette_nearest_centroid"
+    "scenario_imagenette_nearest_centroid",
+    "scenario_rover-lab_knn",
+    "scenario_rover-lab_kmeans",
+    "scenario_rover-lab_nearest_centroid"
   ],
 
   "result_timeout_seconds": 1800,
@@ -25,6 +28,10 @@
   "seeds": [42, 123, 456, 789, 1337, 2021, 3141, 2718, 1618, 9876],
 
   "test_images_per_class": 20,
+
+  "test_data_dirs": {
+    "rover-lab": "server/Retrainer/on-device-drift-detection-main/examples/dataset_rover-lab/test"
+  },
 
   "power": {
     "enabled": true,

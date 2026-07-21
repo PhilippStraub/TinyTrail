@@ -6,12 +6,23 @@ bestimmt wird, warum der fehlende explizite Uhrenabgleich die Messungen unter
 den unten genannten — prüfbaren — Bedingungen nicht maßgeblich verfälscht, und
 wie wir das nachweisen.
 
+> **Update (2026-07-21):** Seit dem Result-Attribution-Fix vom 2026-07-20 (siehe
+> [`README.md` § „Result Attribution & Energy-Data Integrity"](README.md)) wird
+> jede Ergebnis-ZIP nicht mehr anhand ihrer *Ankunftsreihenfolge*, sondern
+> anhand einer im NATS-Publish mitgesendeten **Experiment-ID** (`X-Experiment-Id`
+> / `X-Scenario-Name`) geroutet. Das entkoppelt die in Abschnitt 5 beschriebene
+> „Zuordnung" strukturell vom hier behandelten Uhren-Thema — siehe Abschnitt 5
+> für Details. Der Audit in Abschnitt 5.1 stammt aus der Messkampagne **vor**
+> diesem Fix und vor der Baseline-/EDP-Neuausrichtung (Sampling-Rate, warme
+> Baseline); die gesamte Kampagne wird neu erfasst, die alten Zahlen dienen nur
+> noch als historische Referenz (als solche markiert).
+
 ## 1. Messaufbau: zwei Uhren, ein Messgerät ohne eigene Uhr
 
 | Komponente | Rolle | Zeitquelle |
 |---|---|---|
 | Voltcraft DSP-3005 | misst Spannung/Strom der Pi-Versorgung | **keine** — liefert nur V/I per SCPI |
-| Benchmark-PC | pollt das DSP-3005 mit 5 Hz, stempelt jede Zeile | PC-Systemuhr (`datetime.now()`, `dsp3005_reader.py:93`) |
+| Benchmark-PC | pollt das DSP-3005 mit 8 Hz (Ziel; Default seit der VOLT?/CURR?-Optimierung, vorher 5 Hz), stempelt jede Zeile | PC-Systemuhr (`datetime.now()`, `dsp3005_reader.py:111`) |
 | Raspberry Pi | loggt CPU/RAM mit 5 Hz während der Inferenz | Pi-Systemuhr (`time.time()`, `resource_usage_*.csv`) |
 
 Die Leistungs-Zeitreihe (`power_*.csv`) lebt also vollständig auf der PC-Uhr,
@@ -23,22 +34,44 @@ Betriebssysteme synchronisieren ihre Uhren standardmäßig selbst per NTP
 ## 2. Exakter Ablauf der Inferenz-Energiemessung
 
 Pro Experiment führt `benchmark_pipeline.py` folgende Sequenz aus
-(`_subscribe_deploy_collect`, Zeilen 898–948):
+(`_subscribe_deploy_collect`, ab Zeile 888):
 
 ```
 PC:  PowerLogger.start()          ← Messung beginnt VOR dem Deployment
-PC:  Deployment an den Pi (NATS)
+PC:  Deployment an den Pi (NATS), config.json trägt experiment_id
 Pi:  Deployment empfangen, entpacken, Python-Start
 Pi:  Setup: TFLite-Modell laden (eager), PCA laden, KNN-State laden
 Pi:  ResourceCSVLogger.start()    ← erste Zeile sofort, dann alle 200 ms
 Pi:  Inferenz-Schleife über alle Testbilder
 Pi:  ResourceCSVLogger.stop()     ← letzte Zeile ≤ 0,2 s nach Schleifenende
-Pi:  Merge der Logs, Ergebnis-ZIP über NATS an den PC
+Pi:  Merge der Logs, Ergebnis-ZIP mit X-Experiment-Id/X-Scenario-Name-Headern
+     über NATS an den PC (client/transmitter.py)
+PC:  handle_msg() prüft den Tag gegen die erwartete experiment_id (Zeile 941ff.);
+     nur bei Übereinstimmung gilt die ZIP als DAS Ergebnis dieses Deploys —
+     eine falsch getaggte ZIP landet im Ordner ihrer eigenen ID, nie hier
 PC:  Ergebnis empfangen → PowerLogger.stop()
 ```
 
+Die Tag-Prüfung ist rein eine **Zuordnungs**-Garantie (welches Experiment gehört
+zu welcher ZIP) und arbeitet unabhängig von beiden Uhren — sie ersetzt keine
+Zeitsynchronisation, sondern macht sie für die Fensterbestimmung in diesem
+Dokument irrelevant: Ab hier ist definitionsgemäß sichergestellt, dass die
+folgenden Zeitstempel tatsächlich zum selben Experiment gehören.
+
+Dieselbe Sequenz durchlaufen auch die neuen **Baseline-Blöcke**
+(`run_baseline_block()`, siehe unten): je `n=3` Deployments mit
+`application.baseline_mode=true` vor der ersten und nach jeder
+`samples_per_class`-Zelle, mit identischer ID-Tag-Logik und identischer
+Fensterbestimmung (Abschnitt „Referenzen" unten) — nur ohne Klassifikator-Aufruf.
+Ihre `recorded_at`-Zeitstempel stammen ebenfalls von der PC-Uhr, genau wie
+`started_at`/`result_received_at` der echten Experimente — der Abgleich „welcher
+Baseline-Block gehört zu welcher Zelle" (`analyze_benchmark.py::
+_local_baseline_power_w`) vergleicht also ausschließlich PC-Zeitstempel
+untereinander und ist von der hier behandelten PC↔Pi-Uhrenfrage unberührt.
+
 Das **Inferenzfenster** ist definiert als `[t0, t1] = [min, max]` der
-`timestamp_unix`-Werte des Pi-Ressourcen-Logs (`benchmark_pipeline.py:1000`).
+`timestamp_unix`-Werte des Pi-Ressourcen-Logs (`_inference_window`,
+`benchmark_pipeline.py:1127`).
 Da der Ressourcen-Logger erst nach dem vollständigen Setup startet (Kommentar
 im Szenario-Code: *„Start resource logging only when the actual processing
 starts"*) und im `finally` unmittelbar nach der Schleife stoppt, umschließt
@@ -46,7 +79,7 @@ das Fenster die Inferenzphase auf ±1–2 Samples (±0,2–0,4 s) genau — beid
 Kanten stammen von **derselben Uhr** wie die Inferenz selbst.
 
 Die Energie ergibt sich als Trapezintegral der Leistungs-Samples innerhalb
-des Fensters (`_integrate`, `benchmark_pipeline.py:1016`). Ausgewiesen werden
+des Fensters (`_integrate`, `benchmark_pipeline.py:1143`). Ausgewiesen werden
 `full_window` (gesamter Trace inkl. Deployment) und `inference_window`
 (nur Inferenzphase); alle Pro-Bild- und Netto-Metriken beziehen sich auf
 letzteres.
@@ -60,6 +93,23 @@ Fensterdurchschnitt der Verarbeitungsschleife, kein reiner Forward-Pass;
 die belastbarere Absolutgröße.
 
 ## 3. Die Synchronisationsfrage — und ihr Fehlermodell
+
+> **Update (2026-07-21):** Der Uhrenversatz δ wird seit dieser Änderung nicht
+> mehr nur indirekt über die kausale Schranke (Abschnitt 5, Punkt 2)
+> eingegrenzt, sondern **pro Experiment und pro Baseline-Block aktiv
+> gemessen**: ein NTP-artiger Round-Trip-Handshake über NATS Core
+> (`time.sync.<device_id>`, sieben Pings, kleinster Round-Trip gewinnt — siehe
+> `PLAN_ZEIT_HANDSHAKE.md`) liefert einen Messwert `offset_s`, der in
+> `experiment_metadata.json`/`baseline_summary.json` unter dem Schlüssel
+> `"clock_offset"` abgelegt wird. `analyze_benchmark.py::
+> _offset_corrected_power_metrics` verschiebt das Inferenzfenster damit aktiv
+> (`T_pc_equiv = T_pi − offset_s`) und berichtet `avg_power_W_offset_corrected`
+> / `net_avg_power_W_offset_corrected` / `EDP_offset_corrected` zusätzlich zu
+> den unkorrigierten Größen. Die folgende Fehlermodell-Herleitung bleibt als
+> Erklärung *warum* ein Restversatz überhaupt relevant ist gültig, ist aber ab
+> jetzt keine reine Plausibilitätsannahme mehr, sondern durch einen Messwert
+> ersetzbar; für Daten aus **vor** dieser Änderung (kein `clock_offset` in der
+> Metadatei) gilt sie unverändert als einzige verfügbare Fehlerabschätzung.
 
 Die einzige Stelle, an der beide Uhren übereinstimmen müssen, ist die
 Übertragung der Fensterkanten (Pi-Zeit) auf die Leistungs-Zeitreihe
@@ -116,12 +166,24 @@ Experiment aus den ohnehin archivierten Dateien:
    beiden Seiten — erkennt NTP-Sprünge auf dem Pi mitten im Lauf ebenso wie
    einen abgestürzten Leistungs-Logger.
 4. **Zuordnung:** genau eine Ressourcen-CSV, `run_id` konsistent zum Ergebnis.
+   Seit dem Result-Attribution-Fix (2026-07-20) ist das keine Wahrscheinlichkeits-,
+   sondern eine Baugarantie mehr: `handle_msg()` akzeptiert eine ZIP nur bei
+   passendem `X-Experiment-Id`-Tag (siehe Abschnitt 2). Dieser Audit-Punkt prüft
+   also ab jetzt lediglich die Konsistenz einer bereits strukturell garantierten
+   Zuordnung, nicht mehr deren Herstellung.
 5. **Uhrenfreie Offset-Schätzung:** Kreuzkorrelation der Pi-CPU-Last mit der
    PC-Leistungskurve; der Korrelations-Peak liefert den Restversatz δ̂ direkt
    aus den Signalen. **Auf den realen Messdaten nicht aussagekräftig** — siehe
    Abschnitt 5.1.
 6. **Sensitivität:** Verschiebung des Fensters um ±2 s und Neuberechnung der
    Energie beziffert den maximal möglichen Randeffekt pro Lauf.
+7. **Gemessen vs. kausal geschätzt (neu, 2026-07-21):** Vergleich der aktiv
+   gemessenen `offset_s`-Werte (Abschnitt 3) gegen die historische kausale
+   Schranke δ ∈ [−0,19 s, +3,73 s] aus der Kampagne in Abschnitt 5.1 — als
+   Konsistenz-Check. Liegt der gemessene Wert außerhalb dieser Schranke für
+   einen Lauf mit vergleichbarer Fensterlänge, ist das ein Hinweis auf eine
+   fehlerhafte Messung (z. B. Netzwerk-Ausreißer trotz Min-Round-Trip-Auswahl)
+   und keine Bestätigung eines tatsächlich so großen Versatzes.
 
 Validierung des Audits an synthetischen Testdaten: Ein künstlich eingebauter
 Uhrenversatz von +3 s wurde per Kreuzkorrelation auf die Sekunde genau
@@ -131,7 +193,19 @@ schlug in vier unabhängigen Checks fehl; ein sauberer Lauf passierte mit
 ausschließlich aus dem synthetischen Testfall und sind nicht auf die reale
 Messkampagne übertragbar** (Abschnitt 5.1).
 
-## 5.1 Ergebnis des Audits über die reale Messkampagne (1440 Läufe)
+## 5.1 Ergebnis des Audits über die reale Messkampagne (1440 Läufe) — historisch
+
+> **Diese Zahlen sind archiviert, nicht aktuell.** Ausgeführt am 2026-07-15 —
+> **vor** dem Result-Attribution-Fix (2026-07-20, Abschnitt 2/5) und vor der
+> Baseline-/EDP-Neuausrichtung (warme, lokale Baseline statt kalter globaler
+> Baseline; 8 Hz statt 5 Hz Power-Sampling — siehe `dsp3005_reader.py`). Die
+> gesamte Messkampagne wird auf dieser neuen Grundlage komplett neu erfasst;
+> die alten `results/**`-Daten dienen nur noch zur Orientierung. Ein frischer
+> Audit-Lauf über die neue Kampagne ist vorgesehen, sobald sie abgeschlossen
+> ist — mit erwartbar **0 statt 3 FAIL** (Ursache strukturell behoben, siehe
+> unten) und angepassten Lücken-Sollwerten (0,125 s statt 0,2 s bei 8 Hz).
+> Bis dahin dokumentiert dieser Abschnitt nur, *dass* die Methodik sich schon
+> einmal bewährt hat — nicht die aktuellen Kennzahlen.
 
 Ausgeführt am 2026-07-15 über `results/`; Rohergebnis pro Lauf in
 `results/analysis/power_coverage_audit.csv`. **258 PASS, 1179 WARN, 3 FAIL.**
@@ -196,6 +270,14 @@ nicht um Uhrendrift. Die Läufe sind in `analysis/analyze_benchmark.py` über
 behalten 9 von 10 Seeds. Es hat sich nicht fortgepflanzt — der jeweils
 nächste Lauf ist sauber.
 
+**Diese drei FAILs sind genau der Fehler, den der Result-Attribution-Fix
+(Abschnitt 2/5, Punkt 4) strukturell verhindert:** Die stale Nachricht hätte
+mit dem heutigen `handle_msg()` nicht mehr das aktuell erwartete Experiment
+„getroffen" — sie wäre anhand ihres eigenen `X-Experiment-Id`-Tags in ihren
+eigenen (bereits abgeschlossenen) Ordner geroutet worden, ohne den aktuellen
+Lauf zu berühren. In der neuen Kampagne ist dieser Fehlermodus nicht mehr
+möglich; `EXCLUDED_EXPERIMENTS` sollte für neu erfasste Daten leer bleiben.
+
 **Die Validitätsaussage ist damit bedingt und prüfbar.** Nach dem realen
 Audit-Lauf (Abschnitt 5.1) ist belegt — nicht angenommen —, dass
 (a) jeder Trace sein Fenster mit Reserve überdeckt, (b) kein Uhrensprung
@@ -209,24 +291,83 @@ wiederholen — sie sind verworfen (Abschnitt 5.1).
 
 ## 6. Grenzen und Ausblick
 
-- Die Synchronisation stützt sich auf die NTP-Voreinstellungen der
-  Betriebssysteme; ein expliziter Prüfschritt (`timedatectl status` auf dem
-  Pi vor dem Sweep) bzw. ein NATS-Zeit-Handshake mit protokolliertem Offset
-  pro Experiment wäre die saubere Erweiterung für künftige Messkampagnen.
-- `energy_per_image_J` enthält das Inter-Frame-Delay (200 ms/Bild) und ist
-  als Fensterdurchschnitt zu berichten; für Absolutaussagen ist
-  `net_energy_per_image_J` (Idle-Baseline abgezogen) vorzuziehen.
-- Genauigkeits- und Latenzmetriken sind von der Thematik gänzlich unberührt:
-  Latenz wird auf dem Pi mit einer einzigen Uhr gemessen, Accuracy benötigt
+### Was durch die letzten Änderungen bereits gelöst ist
+
+- **Ergebnis-Zuordnung** (welche ZIP gehört zu welchem Experiment) ist seit
+  2026-07-20 keine Wahrscheinlichkeitsfrage mehr, sondern strukturell per
+  ID-Tag garantiert (Abschnitt 2/5). Das war historisch der einzige real
+  beobachtete Fehlerfall (3 von 1440 Läufen, Abschnitt 5.1) — dieser
+  Fehlermodus ist jetzt ausgeschlossen, nicht nur seltener geworden.
+- Die **Baseline-Zuordnung** (lokale, zeitlich benachbarte Warm-Baseline pro
+  Zelle statt einer einzigen globalen Kalt-Baseline) vergleicht ausschließlich
+  PC-seitige Zeitstempel (`recorded_at` vs. `started_at`/`result_received_at`)
+  — hier existiert keine PC↔Pi-Uhrenfrage, nur eine Sequenzialitätsannahme
+  (siehe unten).
+- **Die eigentliche Uhrenfrage (PC ↔ Pi) ist seit 2026-07-21 gelöst, nicht
+  mehr nur eingegrenzt.** Ein NTP-artiger Round-Trip-Handshake über NATS Core
+  (`time.sync.<device_id>`, Pi-seitig `client/deployment-receiver.py::
+  handle_time_sync`, PC-seitig `benchmark_pipeline.py::
+  _measure_clock_offset`) misst `offset_s` aktiv vor jedem Deploy und vor
+  jedem Baseline-Block, statt sich auf die impliziten NTP-Voreinstellungen
+  der Betriebssysteme zu verlassen. `analyze_benchmark.py::
+  _offset_corrected_power_metrics` wendet die Korrektur auf das
+  Inferenzfenster an (siehe Abschnitt 3). Der kausale Audit (Abschnitt 5,
+  Punkt 2) bleibt als Konsistenz-Check gegen den Messwert erhalten
+  (Abschnitt 5, Punkt 7), ist aber nicht mehr die einzige Absicherung.
+
+### Was weiterhin offen bzw. fehleranfällig bleibt
+
+- **Die Handshake-Messung selbst ist punktuell, nicht kontinuierlich:** Sie
+  läuft einmal unmittelbar vor dem Deploy (bzw. vor jedem Baseline-Lauf), nicht
+  fortlaufend während der gesamten Inferenzdauer. Bei sehr langen Läufen
+  (Imagenette, ~116 s) kann die Pi-Uhr zwischen Messzeitpunkt und
+  Fensterende geringfügig weiterdriften; `offset_std_s` (Streuung über die
+  sieben Pings) ist dafür ein Anhaltspunkt, aber keine Garantie für Drift
+  *während* der Inferenz selbst. Für die hier relevanten LAN-Verhältnisse
+  (Millisekunden-Größenordnung, siehe Abschnitt 3) ist das vernachlässigbar,
+  bleibt aber die verbleibende methodische Näherung.
+- Der `handle_time_sync`-Handler auf dem Pi muss latenzfrei antworten, um die
+  Symmetrie-Annahme der NTP-Formel (PC→Pi-Latenz ≈ Pi→PC-Latenz) zu erfüllen;
+  eine künftige Änderung an `deployment-receiver.py`, die vor der
+  Zeitstempel-Erfassung blockierende Arbeit einführt, würde die
+  Offset-Messung verzerren, ohne dass das ohne erneuten Blick in den Code
+  auffällt.
+- Verbesserungsvorschlag (aus der Vorfassung, jetzt umgesetzt): ein NATS-
+  Zeit-Handshake mit protokolliertem Offset pro Experiment — siehe oben.
+- **Neue, aber kleine Restrisiko-Fläche durch die Baseline-Blöcke:** Ihre
+  „davor/danach"-Zuordnung zu einer Zelle setzt voraus, dass Baseline-Blöcke
+  und echte Experimente strikt sequenziell laufen (`_run_scenario`s
+  synchrone Schleife mit `await`) — aktuell durch die Pipeline-Architektur
+  gegeben, aber anders als die Experiment-Zuordnung (Punkt 4) nicht durch
+  einen eigenen Audit-Punkt abgesichert. Ließe sich mit geringem Aufwand in
+  `verify_power_coverage.py` ergänzen: prüfe, dass jeder `baseline_NNN`-Block
+  ein `recorded_at` hat, das monoton zwischen den `started_at`-Werten der
+  umgebenden Experimente liegt.
+- `energy_per_image_J`/`avg_power_W` (Brutto, globale Baseline) enthalten
+  weiterhin das komplette Inter-Frame-Delay (200 ms/Bild) im Fenster; für
+  Absolutaussagen sind jetzt `net_energy_per_image_J`/`net_avg_power_W_local`
+  (lokale, warme Baseline, siehe Abschnitt 2) vorzuziehen.
+- Genauigkeits- und Latenzmetriken sind von der gesamten Thematik unberührt:
+  Latenz wird auf dem Pi mit einer einzigen Uhr gemessen (`latency_ms`,
+  software-getimt, unabhängig von der Sampling-Hardware), Accuracy benötigt
   keine Zeitbasis.
 
 ## Referenzen (Code)
 
 | Mechanismus | Datei | Stelle |
 |---|---|---|
-| PC-Timestamps der Leistungsmessung | `dsp3005_reader.py` | `log_row`, Z. 93 |
-| Start/Stopp der Messung um das Deployment | `benchmark_pipeline.py` | Z. 898–948 |
-| Fensterbestimmung `[min, max]` | `benchmark_pipeline.py` | `_inference_window`, Z. 1000 |
-| Trapezintegration | `benchmark_pipeline.py` | `_integrate`, Z. 1016 |
-| Pi-Ressourcen-Logger (Start nach Setup) | Szenario-`main.py` | Z. 961–968, Stopp Z. 1128 |
+| PC-Timestamps der Leistungsmessung | `dsp3005_reader.py` | `log_row`, Z. 111 |
+| Start/Stopp der Messung um das Deployment | `benchmark_pipeline.py` | `_subscribe_deploy_collect`, ab Z. 888 |
+| ID-Tag-Prüfung vor Ergebnis-Annahme | `benchmark_pipeline.py` | `handle_msg`, ab Z. 941 |
+| ID-Tag beim Senden (Pi → PC) | `client/transmitter.py` | `transmit_logs` |
+| Genau-einmal-Versand pro Run (Pi) | `client/deployment-receiver.py` | `transmit_current_once` |
+| Fensterbestimmung `[min, max]` | `benchmark_pipeline.py` | `_inference_window`, Z. 1127 |
+| Trapezintegration | `benchmark_pipeline.py` | `_integrate`, Z. 1143 |
+| Pi-Ressourcen-Logger (Start nach Setup) | Szenario-`main.py` | Start Z. 947, Stopp Z. 1112 |
+| Baseline-Blöcke (warm, n je Zelle) | `benchmark_pipeline.py` | `run_baseline_block`, ab Z. 816 |
+| Lokale Baseline-Zuordnung (nur PC-Zeit) | `analysis/analyze_benchmark.py` | `_local_baseline_power_w`, Z. 353; `_load_baseline_blocks`, Z. 330 |
 | Audit | `analysis/verify_power_coverage.py` | gesamtes Skript |
+| PC↔Pi-Zeit-Handshake (Pi-Seite, Reply) | `client/deployment-receiver.py` | `handle_time_sync`, in `start_consumer` |
+| PC↔Pi-Zeit-Handshake (PC-Seite, Messung) | `benchmark_pipeline.py` | `_measure_clock_offset` |
+| Offset-Korrektur des Inferenzfensters | `analysis/analyze_benchmark.py` | `_offset_corrected_power_metrics` |
+| Implementierungsplan des Handshakes | `PLAN_ZEIT_HANDSHAKE.md` | gesamtes Dokument |
