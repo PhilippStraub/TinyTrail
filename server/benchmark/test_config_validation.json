@@ -1,0 +1,43 @@
+{
+  "device_id": "my_device_01",
+  "nats_url": "nats://localhost:4222",
+
+  "experiment_names": [
+    { "name": "scenario_cifar10_knn_benchmark",
+      "pca_configs": [{ "enabled": false }],
+      "samples_per_class": [2], "seeds": [42] },
+    { "name": "scenario_cifar10_nearest_centroid",
+      "pca_configs": [{ "enabled": true, "explained_variance": 0.95 }],
+      "samples_per_class": [5], "seeds": [42] },
+    { "name": "scenario_cifar10_kmeans",
+      "pca_configs": [{ "enabled": false }],
+      "samples_per_class": [2], "seeds": [42] },
+    { "name": "scenario_imagenette_knn",
+      "pca_configs": [{ "enabled": true, "explained_variance": 0.95 }],
+      "samples_per_class": [2], "seeds": [42] },
+    { "name": "scenario_rover-lab_knn",
+      "pca_configs": [{ "enabled": false }],
+      "samples_per_class": [2], "seeds": [42] },
+    { "name": "scenario_rover-lab_nearest_centroid",
+      "pca_configs": [{ "enabled": true, "explained_variance": 0.95 }],
+      "samples_per_class": [5], "seeds": [42] }
+  ],
+
+  "result_timeout_seconds": 1800,
+  "abort_on_timeout": true,
+  "skip_completed": true,
+
+  "test_images_per_class": 5,
+
+  "test_data_dirs": {
+    "rover-lab": "server/Retrainer/on-device-drift-detection-main/examples/dataset_rover-lab/test"
+  },
+
+  "power": {
+    "enabled": true,
+    "required": true,
+    "port": "COM5",
+    "rate": 8.0,
+    "baseline_power_w": null
+  }
+}

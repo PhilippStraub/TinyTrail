@@ -10,7 +10,7 @@ from nats.aio.client import Client as NATS
 from nats.js.api import StreamConfig
 
 # Nats Config
-NATS_URL = "nats://192.168.178.62:4222"
+NATS_URL = "nats://192.168.179.4:4222"  # JetStream Broker (this benchmark laptop)
 ANALYSIS_STREAM_NAME = "ANALYSIS"
 ANALYSIS_SUBJECT_PREFIX = "analysis.logs"
 MAX_MSG_SIZE = 8 * 1024 * 1024  # 8 MB
