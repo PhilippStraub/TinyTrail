@@ -1,6 +1,6 @@
 # Multi-Scenario Benchmark Pipeline
 
-Automated benchmark runner for TinyMLOps classifier scenarios. The pipeline can run one
+Automated benchmark runner for TinyTrail classifier scenarios. The pipeline can run one
 or more scenarios sequentially, deploy each scenario to the Raspberry Pi via NATS, collect
 the returned logs, and store results in scenario-specific folders.
 
