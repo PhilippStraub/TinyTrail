@@ -384,6 +384,11 @@ Override globally or per dataset:
 
 `test_data_dirs` keys can be dataset names or exact scenario names.
 
+`benchmark_config.json` accepts `//` line comments and tolerates a trailing comma
+before `]`/`}` (`load_benchmark_config()` strips both, respecting string literals like
+`"nats://..."`) — comment out scenario names in `experiment_names` to run one dataset
+at a time without deleting entries.
+
 ## Result Layout
 
 Results are now separated by scenario:

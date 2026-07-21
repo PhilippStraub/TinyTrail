@@ -56,19 +56,13 @@ CLASSIFIER_LABELS = {
     "KMeansPrototypeClassifier": "KMeans",
 }
 
-# Runs excluded from every aggregate: each received a duplicate of the *preceding*
-# experiment's result ZIP (byte-identical merged_analysis, same run_id), so the row
-# carries the wrong seed's accuracy and latency. Proven on the PC clock alone — the
-# whole deploy→result cycle took ~4-5 s while the returned resource log spans a
-# 49-114 s inference — so this is a result-attribution failure, not a clock-sync
-# artifact. Their energy is already absent (no power.inference_window). Detected by
-# analysis/verify_power_coverage.py (check 2, causal containment); per-run evidence in
-# results/analysis/power_coverage_audit.csv. Affected cells keep 9 of 10 seeds.
-EXCLUDED_EXPERIMENTS = {
-    "scenario_cifar10_knn_benchmark/exp_004_pca95var_spc2_s789",
-    "scenario_cifar10_knn_benchmark/exp_039_pca95var_spc20_s1618",
-    "scenario_imagenette_nearest_centroid/exp_125_nopca_spc2_s1337",
-}
+# Runs excluded from every aggregate. Was populated with 3 IDs from the pre-fix legacy
+# campaign (byte-identical duplicate ZIPs misattributed to the wrong experiment) — that
+# data has since been discarded and the underlying bug fixed (see
+# MESSMETHODIK_ZEITSYNCHRONISATION.md §5.1 / TESTPLAN_HARDWARE_VALIDIERUNG.md §8). Stays
+# empty for the current campaign; the result-attribution fix makes this failure mode
+# structurally impossible, confirmed live during the hardware validation run (§7.2).
+EXCLUDED_EXPERIMENTS = set()
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -32,6 +32,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -313,9 +314,46 @@ def scenario_results_dir(results_dir: Path, ctx: ScenarioContext) -> Path:
 # Config loading
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _strip_json_comments(text: str) -> str:
+    """Strip '// ...' line comments and resulting trailing commas so a hand-edited
+    JSONC-style config (e.g. commenting out scenario names) still parses as JSON.
+    Tracks string literals so '//' inside a value (e.g. "nats://host:4222") is left
+    untouched.
+    """
+    out = []
+    in_string = False
+    escape = False
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if in_string:
+            out.append(c)
+            if escape:
+                escape = False
+            elif c == "\\":
+                escape = True
+            elif c == '"':
+                in_string = False
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+            out.append(c)
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] not in "\r\n":
+                i += 1
+            continue
+        out.append(c)
+        i += 1
+    return re.sub(r",(\s*[\]}])", r"\1", "".join(out))
+
+
 def load_benchmark_config(config_path: Path) -> Dict:
     with open(config_path) as f:
-        return json.load(f)
+        text = f.read()
+    return json.loads(_strip_json_comments(text))
 
 
 def _pca_target_from_config(pca_cfg: Dict) -> Tuple[Optional[float | int], Optional[str]]:
