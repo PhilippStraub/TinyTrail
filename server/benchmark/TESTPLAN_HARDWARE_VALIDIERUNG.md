@@ -525,6 +525,31 @@ Rover-Lab-Fix (10.8) im zweiten Anlauf. Ergebnisse unten sind aus dem tatsächli
       auf dem Pi (`deployment-receiver.py:227-279`) bleibt bis zum produktiven Sweep (oder
       einem gezielten Nachtest mit z. B. `samples_per_class=100`) ungetestet.
 
+**Nachtrag (Folgesession, 2026-07-21, gezielter Nachtest gegen Hans):** Getestet mit
+`samples_per_class=100` (dem höchsten Wert, den `benchmark_config.json` überhaupt
+vorsieht) sowohl mit `pca95var` (test_images_per_class=5) als auch mit `nopca`/vollem
+1280-dim-Feature-Vektor (`test_images_per_class=20`, produktiver Wert) — beide echte
+Deployments auf Hans, beide fehlerfrei, aber:
+
+| Variante | spc | test_images/class | ZIP-Größe |
+|---|---|---|---|
+| `pca95var` | 100 | 5 | 12,08 MB |
+| `nopca` | 100 | 20 | 12,76 MB |
+
+Beide bleiben weit unter den 25 MB — **selbst die ungünstigste innerhalb der produktiven
+Config erreichbare Kombination (kein PCA, `spc=100`, volle Testbildzahl) löst kein
+Chunking aus.** Die Annahme oben ("Chunking greift bei hohem `samples_per_class`") ist
+für die tatsächlich konfigurierten Werte falsch — `samples_per_class` geht in der
+produktiven Config nie über 100 hinaus (Abschnitt 5/8.2-Liste `[2,5,...,100]`). Die
+Chunk-Reassemblierung bleibt damit **strukturell ungetestet** für den gesamten
+produktiven Sweep, nicht nur für diesen einen Testlauf. Auf Nutzerentscheidung: kein
+synthetischer Extremtest mit unrealistischem `spc` (z. B. 400+) durchgeführt — das
+Risiko wird bewusst dokumentiert und in Kauf genommen, statt mit nicht
+repräsentativen Parametern nachzutesten. Für eine spätere Session, falls das
+noch geschlossen werden soll: `samples_per_class` deutlich über 100 (Imagenette-Klassen
+haben min. 858 Trainingsbilder, spc bis ~800 wäre möglich) nur als isolierter,
+nicht-produktiver Testlauf, nie in der produktiven Config.
+
 ### 7.5 Formate / erwartete Dateien je `exp_*`-Ordner — ✅ vollständig
 
 - [x] Alle erwarteten Dateitypen für jede der 6 Zellen vorhanden (kein `drift_detection_*.csv`
