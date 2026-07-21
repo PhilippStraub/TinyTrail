@@ -350,6 +350,30 @@ def _load_baseline_blocks(scenario_dir: Path) -> List[Dict]:
     return blocks
 
 
+def _bracketing_blocks(
+    blocks: List[Dict],
+    started_at_iso: Optional[str],
+    result_received_at_iso: Optional[str],
+) -> List[Dict]:
+    """The baseline block(s) immediately bracketing this experiment's time window —
+    the "Mittelwert der beiden Randbloecke" design: one warm-idle measurement right
+    before the run started, one right after it finished. Shared by
+    _local_baseline_power_w() and _local_baseline_sem_w() so both always agree on
+    which blocks a given experiment falls between.
+    """
+    if not blocks or not started_at_iso:
+        return []
+    end_iso = result_received_at_iso or started_at_iso
+    before = [b for b in blocks if b.get("recorded_at", "") <= started_at_iso]
+    after  = [b for b in blocks if b.get("recorded_at", "") >= end_iso]
+    matched = []
+    if before:
+        matched.append(before[-1])
+    if after:
+        matched.append(after[0])
+    return matched
+
+
 def _local_baseline_power_w(
     blocks: List[Dict],
     started_at_iso: Optional[str],
@@ -357,24 +381,45 @@ def _local_baseline_power_w(
     fallback: Optional[float],
 ) -> Optional[float]:
     """Mean of the baseline block(s) immediately bracketing this experiment's time
-    window — the "Mittelwert der beiden Randbloecke" design: one warm-idle
-    measurement right before the run started, one right after it finished. Falls
-    back to the global config baseline_power_w (or None) if no bracketing block
-    is found, e.g. for result sets collected before baseline blocks existed.
+    window. Falls back to the global config baseline_power_w (or None) if no
+    bracketing block is found, e.g. for result sets collected before baseline
+    blocks existed.
     """
-    if not blocks or not started_at_iso:
+    matched = _bracketing_blocks(blocks, started_at_iso, result_received_at_iso)
+    if not matched:
         return fallback
-    end_iso = result_received_at_iso or started_at_iso
-    before = [b for b in blocks if b.get("recorded_at", "") <= started_at_iso]
-    after  = [b for b in blocks if b.get("recorded_at", "") >= end_iso]
-    vals = []
-    if before:
-        vals.append(before[-1]["avg_power_W_mean"])
-    if after:
-        vals.append(after[0]["avg_power_W_mean"])
-    if not vals:
-        return fallback
-    return float(np.mean(vals))
+    return float(np.mean([b["avg_power_W_mean"] for b in matched]))
+
+
+def _local_baseline_sem_w(
+    blocks: List[Dict],
+    started_at_iso: Optional[str],
+    result_received_at_iso: Optional[str],
+) -> Optional[float]:
+    """Systematic (Typ-B) uncertainty of the local baseline correction above: the
+    standard error of the bracketing-block mean, propagated from each block's own
+    n=3 raw avg_power_W_values (see run_baseline_block() in benchmark_pipeline.py).
+
+    This is constant across every seed of a cell — all seeds share the same
+    bracketing blocks — unlike the seed-to-seed spread that _ci95() measures. The
+    two are complementary, not interchangeable: _ci95() shrinks with more seeds,
+    this does not (it only shrinks with more/better baseline deployments).
+
+    SEM_lokal = sqrt(SEM_before^2 + SEM_after^2) / 2  (variance of the mean of two
+    independent estimates), or SEM_block directly when only one block brackets the
+    cell (campaign edge, nothing to average).
+    """
+    matched = _bracketing_blocks(blocks, started_at_iso, result_received_at_iso)
+    sems = []
+    for b in matched:
+        vals = [v for v in (b.get("avg_power_W_values") or []) if v is not None]
+        if len(vals) >= 2:
+            sems.append(float(np.std(vals, ddof=1) / np.sqrt(len(vals))))
+    if not sems:
+        return None
+    if len(sems) == 1:
+        return sems[0]
+    return float(np.sqrt(sum(s ** 2 for s in sems)) / 2.0)
 
 
 def _offset_corrected_power_metrics(exp_dir: Path, meta: Dict, n_images: Optional[int]) -> Dict:
@@ -569,6 +614,20 @@ def load_experiment(exp_dir: Path) -> Optional[Dict]:
     else:
         row["EDP"] = np.nan
 
+    # ── Systematic (Typ-B) baseline uncertainty — see _local_baseline_sem_w() ──
+    # Constant across all seeds of this cell (same bracketing blocks); propagated
+    # into EDP the same way EDP itself is built (SEM * latency instead of power *
+    # latency). Kept as a separate column, never folded into EDP or its seed-CI —
+    # aggregate() reports it alongside, not inside, EDP_ci95.
+    local_baseline_sem_w = _local_baseline_sem_w(
+        blocks, meta.get("started_at"), meta.get("result_received_at"),
+    )
+    row["local_baseline_sem_w"] = local_baseline_sem_w
+    if local_baseline_sem_w is not None and pd.notna(row["latency_ms_mean"]):
+        row["EDP_systematic_sem"] = float(local_baseline_sem_w) * float(row["latency_ms_mean"]) / 1000.0
+    else:
+        row["EDP_systematic_sem"] = np.nan
+
     # ── Clock-offset correction (measured PC<->Pi handshake, see PLAN_ZEIT_HANDSHAKE.md) ──
     # Independent of the local-baseline correction above (idle-power drift vs. clock
     # skew are separate, non-exclusive error sources); combined into *_offset_corrected
@@ -695,6 +754,21 @@ def aggregate(summary: pd.DataFrame, group_cols: Optional[Sequence[str]] = None)
             rec[f"{col}_mean"] = float(np.nanmean(vals)) if np.any(~np.isnan(vals)) else np.nan
             rec[f"{col}_std"]  = float(np.nanstd(vals, ddof=1)) if np.sum(~np.isnan(vals)) > 1 else np.nan
             rec[f"{col}_ci95"] = _ci95(vals)
+
+        # Systematic (Typ-B) baseline uncertainty — see _local_baseline_sem_w().
+        # Constant across every seed in this cell (same bracketing baseline
+        # blocks), so averaging over the group is meaningless; take the one
+        # distinct value instead. Reported as its own column, deliberately never
+        # combined into EDP_ci95 above — the two answer different questions
+        # (random seed spread vs. systematic baseline-measurement spread).
+        if "EDP_systematic_sem" in g.columns:
+            sem_vals = pd.to_numeric(g["EDP_systematic_sem"], errors="coerce").dropna()
+            sem = float(sem_vals.iloc[0]) if len(sem_vals) else np.nan
+        else:
+            sem = np.nan
+        rec["EDP_sem_systematic"]  = sem
+        rec["EDP_ci95_systematic"] = float(1.96 * sem) if pd.notna(sem) else np.nan
+
         out_rows.append(rec)
     sort_cols = [c for c in group_cols if c in {"dataset_name", "scenario_name",
                                                 "classifier_label", "pca_label",
@@ -707,8 +781,14 @@ def aggregate(summary: pd.DataFrame, group_cols: Optional[Sequence[str]] = None)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _plot_metric_vs_samples(ax, agg: pd.DataFrame, metric: str, title: str):
-    """One metric vs samples-per-class, one line per PCA config, with CI band."""
+    """One metric vs samples-per-class, one line per PCA config, with CI band.
+
+    For EDP, a second hatched band shows the systematic baseline uncertainty
+    (EDP_ci95_systematic) alongside the solid seed-CI band — same mean, two
+    different, non-additive uncertainty sources. See _local_baseline_sem_w().
+    """
     label_col = "plot_label" if "plot_label" in agg.columns else "pca_label"
+    has_systematic = metric == "EDP" and "EDP_ci95_systematic" in agg.columns
     for label, sub in agg.groupby(label_col):
         sub = sub.sort_values("samples_per_class")
         x = sub["samples_per_class"].to_numpy()
@@ -719,11 +799,18 @@ def _plot_metric_vs_samples(ax, agg: pd.DataFrame, metric: str, title: str):
         line, = ax.plot(x, y, marker="o", label=label)
         ci_safe = np.nan_to_num(ci, nan=0.0)
         ax.fill_between(x, y - ci_safe, y + ci_safe, alpha=0.18, color=line.get_color())
+        if has_systematic:
+            ci_sys = np.nan_to_num(sub["EDP_ci95_systematic"].to_numpy(), nan=0.0)
+            ax.fill_between(x, y - ci_sys, y + ci_sys, alpha=0.12, hatch="//",
+                             facecolor="none", edgecolor=line.get_color())
     ax.set_title(title)
     ax.set_xlabel("Reference samples per class")
     ax.set_ylabel(title)
     ax.grid(True, alpha=0.3)
-    ax.legend(title="Pipeline")
+    if has_systematic:
+        ax.legend(title="Pipeline (band: seed CI; hatched: systematic baseline unc.)")
+    else:
+        ax.legend(title="Pipeline")
 
 
 def plot_paper_curves(agg: pd.DataFrame, fig_dir: Path):
@@ -946,6 +1033,20 @@ def compute_suitability(
         edp_bar = edp_valid.mean() if len(edp_valid) else np.nan
         sigma_edp = edp_valid.std(ddof=1) if len(edp_valid) > 1 else np.nan
 
+        # Sanity check: is the observed stage-to-stage EDP spread (sigma_edp) real
+        # signal, or largely baseline measurement floor noise? Each stage hangs off
+        # a different bracketing block pair, so part of sigma_edp can come from
+        # baseline-estimate imprecision rather than genuine energy growth over the
+        # sample-size curve. Compare against the typical per-stage systematic SEM.
+        sem_sys = sub["EDP_sem_systematic"] if "EDP_sem_systematic" in sub.columns else pd.Series(dtype=float)
+        sem_sys_valid = sem_sys.dropna()
+        edp_sem_systematic_typical = sem_sys_valid.mean() if len(sem_sys_valid) else np.nan
+        sigma_edp_over_systematic = (
+            sigma_edp / edp_sem_systematic_typical
+            if pd.notna(sigma_edp) and pd.notna(edp_sem_systematic_typical) and edp_sem_systematic_typical > 0
+            else np.nan
+        )
+
         mem_col = "memory_rss_mb_max_mean" if "memory_rss_mb_max_mean" in sub.columns else None
         mem_feasibility = sub[mem_col].max() if mem_col else np.nan
 
@@ -968,6 +1069,8 @@ def compute_suitability(
             "accuracy_bar": acc_bar,
             "EDP_bar": edp_bar,
             "sigma_EDP": sigma_edp,
+            "EDP_sem_systematic_typical": edp_sem_systematic_typical,
+            "sigma_EDP_over_systematic": sigma_edp_over_systematic,
             "s_star": s_star,
             "s_min": s_min,
             "memory_feasibility_mb": mem_feasibility,
@@ -1053,6 +1156,14 @@ def write_report(summary: pd.DataFrame, agg: pd.DataFrame,
                  "the seed controls **both** reference-sample selection and test-image order.")
     lines.append("- Reported values are the **arithmetic mean across seeds**; error bands/intervals "
                  "are the **95% confidence interval of the mean** (t-distribution, n−1 df).")
+    lines.append("- **Systematic vs. random uncertainty (EDP)**: the seed-CI above is a random (Typ-A) "
+                 "uncertainty — it shrinks with more seeds but cannot see the baseline correction, since "
+                 "every seed in a cell shares the same bracketing warm-idle baseline block pair. `EDP_ci95_"
+                 "systematic` is a separate, non-shrinking systematic (Typ-B) uncertainty propagated from "
+                 "the raw n=3 measurements inside those baseline blocks. The two are reported side by side "
+                 "and never summed into one number; a cell-to-cell EDP difference smaller than the combined "
+                 "systematic uncertainty of both cells is not robustly supported by the data alone, "
+                 "regardless of how tight the seed-CI looks.")
     lines.append("- PCA vs no-PCA is compared **paired** at matched (samples, seed) using the "
                  "Wilcoxon signed-rank test where ≥5 pairs are available.")
     lines.append("- **Energy** is the external Voltcraft measurement, baseline-subtracted "
@@ -1091,7 +1202,8 @@ def write_report(summary: pd.DataFrame, agg: pd.DataFrame,
     show_cols = ["pca_label", "samples_per_class", "n_seeds",
                  "accuracy_mean", "accuracy_ci95",
                  "net_energy_per_image_J_mean", "cpu_percent_mean_mean",
-                 "memory_rss_mb_mean_mean", "latency_ms_mean_mean"]
+                 "memory_rss_mb_mean_mean", "latency_ms_mean_mean",
+                 "EDP_mean", "EDP_ci95", "EDP_ci95_systematic"]
     show_cols = [c for c in show_cols if c in agg.columns]
     lines.append(_table(agg[show_cols].round(4)))
     lines.append("")

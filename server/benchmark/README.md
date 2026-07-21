@@ -602,7 +602,7 @@ Service file for the current Pi folder layout:
 
 ```ini
 [Unit]
-Description=TinySphere Deployment Receiver
+Description=TinyTrail Deployment Receiver
 After=network-online.target
 Wants=network-online.target
 
