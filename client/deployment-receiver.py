@@ -32,6 +32,11 @@ BASE_DIR = Path.home() / "tinysphere-deployment-pipeline"
 DEPLOYMENTS_DIR = BASE_DIR / "deployments"
 CONFIG_DIR = BASE_DIR / "config"
 DELETE_OLD = True
+# Grace period before _cleanup_old_deployments() removes a stale deployment_* dir.
+# Protects a dir orphaned by a mid-run service restart (see README.md "NATS broker
+# restart" troubleshooting entry) long enough to notice something went wrong and
+# inspect it manually, rather than it vanishing on the very next successful deploy.
+DEPLOYMENT_CLEANUP_GRACE_S = 3600
 NATS_URL = "nats://192.168.179.4:4222"  # JetStream Broker (this benchmark laptop)
 STREAM_NAME = "MODELS"
 MAX_MSG_SIZE = 25 * 1024 * 1024  # 25 MB
@@ -198,6 +203,37 @@ def initialize():
         return None
 
 
+def _cleanup_old_deployments(current_path):
+    """Delete every sibling deployment_* dir except the one just started, once
+    it has sat untouched for DEPLOYMENT_CLEANUP_GRACE_S.
+
+    DeploymentManager.current_path only tracks the in-memory "current" deployment
+    and resets to None across a process/service restart (see stop_current()) —
+    across a NATS outage or crash-restart, deployments before the restart never
+    get cleaned up this way and accumulate indefinitely. This is a stateless
+    directory scan instead, so it self-heals regardless of process lifetime.
+
+    The grace period matters specifically for a dir orphaned by a mid-run service
+    restart: without it, such a dir (whose logs were never transmitted, since the
+    restart lost the in-memory tracking that would have sent them) would be
+    deleted unrecoverably on the very next successful deploy. Folder names are
+    logged before deletion so there is still a forensic trail even after cleanup.
+    """
+    current = Path(current_path)
+    now = time.time()
+    for entry in DEPLOYMENTS_DIR.iterdir():
+        if not (entry.is_dir() and entry.name.startswith("deployment_") and entry != current):
+            continue
+        try:
+            age_s = now - entry.stat().st_mtime
+        except OSError:
+            continue
+        if age_s < DEPLOYMENT_CLEANUP_GRACE_S:
+            continue
+        logging.info(f"Cleaning up old deployment dir (age {age_s:.0f}s): {entry}")
+        shutil.rmtree(entry, ignore_errors=True)
+
+
 async def process_deployment_zip(zip_data, deployment_manager, msg, start_time, already_acked=False):
     await deployment_manager.stop_current()
 
@@ -211,10 +247,11 @@ async def process_deployment_zip(zip_data, deployment_manager, msg, start_time, 
             safe_extract(zip_ref, deployment_path)
     except Exception as e:
         logging.error(f"Error during unpacking: {e} - message will not be acknowledged.")
-        return 
+        return
 
     # Here deployment manager is called to execute the newly received deployment
     deployment_manager.start_new(str(deployment_path))
+    _cleanup_old_deployments(deployment_path)
 
     # Once the deployment has been successfully processed (ZIP), ack is send to NATS manually
     if not already_acked:

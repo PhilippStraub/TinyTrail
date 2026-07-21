@@ -177,13 +177,22 @@ Experiment aus den ohnehin archivierten Dateien:
    Abschnitt 5.1.
 6. **Sensitivität:** Verschiebung des Fensters um ±2 s und Neuberechnung der
    Energie beziffert den maximal möglichen Randeffekt pro Lauf.
-7. **Gemessen vs. kausal geschätzt (neu, 2026-07-21):** Vergleich der aktiv
-   gemessenen `offset_s`-Werte (Abschnitt 3) gegen die historische kausale
-   Schranke δ ∈ [−0,19 s, +3,73 s] aus der Kampagne in Abschnitt 5.1 — als
-   Konsistenz-Check. Liegt der gemessene Wert außerhalb dieser Schranke für
-   einen Lauf mit vergleichbarer Fensterlänge, ist das ein Hinweis auf eine
-   fehlerhafte Messung (z. B. Netzwerk-Ausreißer trotz Min-Round-Trip-Auswahl)
-   und keine Bestätigung eines tatsächlich so großen Versatzes.
+7. **Gemessener Handshake-Offset gegen Sanity-Schwelle (implementiert
+   2026-07-21, Folgesession):** `verify_power_coverage.py` liest jetzt aktiv
+   `clock_offset.offset_s`/`round_trip_s` aus `experiment_metadata.json` (bzw.
+   der pro-Run-Metadatei jedes Baseline-Laufs, siehe Abschnitt 2) und meldet
+   `WARN`, wenn `|offset_s|` den Schwellenwert `--offset-warn` (Default 1,0 s,
+   siehe Fehlermodell in Abschnitt 3) überschreitet — unabhängig vom kausalen
+   Containment-Check (Punkt 2), der auf `started_at`/`result_received_at`
+   basiert statt auf der Handschlag-Messung selbst. Beide Spalten
+   (`clock_offset_s`, `clock_offset_round_trip_s`) landen zusätzlich in
+   `power_coverage_audit.csv`, und die aggregierte "Paper numbers"-Ausgabe
+   zeigt Median/Maximum über den gesamten Sweep. Das ist bewusst ein fixer
+   Sanity-Schwellenwert, **keine** automatisierte Prüfung gegen die
+   historische kausale Schranke δ ∈ [−0,19 s, +3,73 s] aus Abschnitt 5.1 — die
+   stammt von anderer Hardware/Kampagne und ist laut eigener Einschränkung dort
+   nicht 1:1 übertragbar; ein Vergleich gegen sie bleibt manuelle Interpretation
+   (siehe 7.1 im Testplan für ein Beispiel, wie das im Einzelfall aussieht).
 
 Validierung des Audits an synthetischen Testdaten: Ein künstlich eingebauter
 Uhrenversatz von +3 s wurde per Kreuzkorrelation auf die Sekunde genau
@@ -370,4 +379,5 @@ wiederholen — sie sind verworfen (Abschnitt 5.1).
 | PC↔Pi-Zeit-Handshake (Pi-Seite, Reply) | `client/deployment-receiver.py` | `handle_time_sync`, in `start_consumer` |
 | PC↔Pi-Zeit-Handshake (PC-Seite, Messung) | `benchmark_pipeline.py` | `_measure_clock_offset` |
 | Offset-Korrektur des Inferenzfensters | `analysis/analyze_benchmark.py` | `_offset_corrected_power_metrics` |
+| Sanity-Check des gemessenen Handshake-Offsets (Audit Punkt 7) | `analysis/verify_power_coverage.py` | `audit_experiment`, Check 7 (`--offset-warn`) |
 | Implementierungsplan des Handshakes | `PLAN_ZEIT_HANDSHAKE.md` | gesamtes Dokument |

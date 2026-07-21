@@ -29,6 +29,13 @@ Checks per experiment
   6. sensitivity  shift the integration window by +/- shift seconds and
                   report the worst relative change of the window energy;
                   also recompute the stored energy_J as a self-check.
+  7. handshake    sanity-check the actively measured PC<->Pi clock offset
+                  (experiment_metadata.json / baseline_summary.json's
+                  "clock_offset.offset_s", from the NTP-style round-trip
+                  handshake in benchmark_pipeline.py::_measure_clock_offset) ->
+                  WARN when |offset_s| exceeds --offset-warn. This is the
+                  "measured vs. sanity bound" check described in
+                  MESSMETHODIK_ZEITSYNCHRONISATION.md §5 point 7.
 
 Usage (from server/benchmark/, with the venv python):
     python analysis/verify_power_coverage.py                 # audit ./results
@@ -301,6 +308,20 @@ def audit_experiment(exp_dir: Path, args) -> Dict:
         warns.append("no started_at/result_received_at in metadata "
                      "-> containment check skipped")
 
+    # Check 7: sanity-check the actively measured handshake offset (see
+    # MESSMETHODIK_ZEITSYNCHRONISATION.md §5 point 7). Independent of Check 2:
+    # this reads the NTP-style round-trip measurement itself rather than
+    # deriving a bound from started_at/result_received_at.
+    clock_offset = meta.get("clock_offset") or {}
+    measured_offset = clock_offset.get("offset_s")
+    rec["clock_offset_s"] = measured_offset
+    rec["clock_offset_round_trip_s"] = clock_offset.get("round_trip_s")
+    if measured_offset is None:
+        warns.append("no clock_offset in metadata -> handshake check skipped")
+    elif abs(measured_offset) > args.offset_warn:
+        warns.append(f"measured clock offset {measured_offset:+.3f}s exceeds "
+                     f"{args.offset_warn:.1f}s sanity bound")
+
     # Check 3a: Pi sampling gaps / monotonicity (detects NTP step mid-run)
     diffs = [b - a for a, b in zip(r_ts, r_ts[1:])]
     neg = sum(1 for d in diffs if d < 0)
@@ -378,7 +399,8 @@ def discover_experiments(results_dir: Path) -> List[Path]:
 
 CSV_FIELDS = [
     "experiment", "status", "window_s", "margin_front_s", "margin_back_s",
-    "offset_bound_lo_s", "offset_bound_hi_s", "pi_max_gap_s",
+    "offset_bound_lo_s", "offset_bound_hi_s", "clock_offset_s",
+    "clock_offset_round_trip_s", "pi_max_gap_s",
     "power_max_gap_s", "power_coverage", "xcorr_offset_s", "xcorr_peak",
     "sensitivity_pct", "reasons",
 ]
@@ -402,7 +424,9 @@ def main() -> int:
     ap.add_argument("--max-lag", type=float, default=30.0,
                     help="cross-correlation search range in seconds (default 30)")
     ap.add_argument("--offset-warn", type=float, default=1.0,
-                    help="WARN when |xcorr offset| exceeds this (default 1.0 s)")
+                    help="WARN when |xcorr offset| or |measured handshake clock_offset| "
+                         "exceeds this (default 1.0 s, see MESSMETHODIK_ZEITSYNCHRONISATION.md "
+                         "§3 for why 1s is the point the effect on energy becomes noticeable)")
     ap.add_argument("--csv-out", type=Path, default=None,
                     help="output CSV (default <results>/analysis/power_coverage_audit.csv)")
     args = ap.parse_args()
@@ -424,8 +448,10 @@ def main() -> int:
         if r.get("margin_front_s") is not None:
             extras.append(f"margins {r['margin_front_s']:+.1f}/"
                           f"{r['margin_back_s']:+.1f}s")
+        if r.get("clock_offset_s") is not None:
+            extras.append(f"handshake offset {r['clock_offset_s']:+.3f}s")
         if r.get("xcorr_offset_s") is not None:
-            extras.append(f"offset {r['xcorr_offset_s']:+.1f}s")
+            extras.append(f"xcorr offset {r['xcorr_offset_s']:+.1f}s")
         if r.get("sensitivity_pct") is not None:
             extras.append(f"sens {r['sensitivity_pct']:.2f}%")
         if extras:
@@ -449,6 +475,7 @@ def main() -> int:
     if audited:
         margins_f, margins_b = _vals("margin_front_s"), _vals("margin_back_s")
         offsets = [abs(v) for v in _vals("xcorr_offset_s")]
+        measured_offsets = [abs(v) for v in _vals("clock_offset_s")]
         sens = _vals("sensitivity_pct")
         gaps = _vals("pi_max_gap_s")
         print("\nPaper numbers (across all audited experiments):")
@@ -458,6 +485,12 @@ def main() -> int:
         if gaps:
             print(f"  max Pi sampling gap  : {max(gaps):.2f}s "
                   f"(nominal {1.0 / args.rate:.1f}s)")
+        if measured_offsets:
+            n_over = sum(1 for v in measured_offsets if v > args.offset_warn)
+            print(f"  measured clock offset: median {sorted(measured_offsets)[len(measured_offsets) // 2]:.3f}s, "
+                  f"max {max(measured_offsets):.3f}s  (NTP-style handshake, "
+                  f"{len(measured_offsets)}/{len(audited)} runs measured, "
+                  f"{n_over} above {args.offset_warn:.1f}s sanity bound)")
         if offsets:
             print(f"  residual clock offset: median {sorted(offsets)[len(offsets) // 2]:.2f}s, "
                   f"max {max(offsets):.2f}s  (cross-correlation, "

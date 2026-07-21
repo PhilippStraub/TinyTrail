@@ -847,6 +847,7 @@ def run_baseline_block(
         prepare_deployment(ctx, False, None, spc, run_id, seed=seed,
                            test_images_per_class=test_per_class,
                            pca_label="nopca", baseline_mode=True)
+        started_at = time.time()
         result_csv, clock_offset = collect_result(nats_url, device_id, ctx.name, run_id,
                                     result_timeout, baseline_dir, power_cfg)
         entry: Dict = {"run_id": run_id, "status": "OK" if result_csv else "TIMEOUT",
@@ -856,6 +857,21 @@ def run_baseline_block(
             entry["power"] = compute_power_metrics(
                 result_csv.parent, n_images=n_images,
             )
+        if result_csv:
+            # Mirrors experiment_metadata.json's started_at/result_received_at so
+            # verify_power_coverage.py's containment check also covers baseline runs
+            # (read_metadata() looks for this exact filename in each run's own dir).
+            meta_path = result_csv.parent / "experiment_metadata.json"
+            with open(meta_path, "w") as f:
+                json.dump({
+                    "experiment_id":       run_id,
+                    "scenario_name":       ctx.name,
+                    "baseline_block_index": block_index,
+                    "baseline_mode":       True,
+                    "started_at":          datetime.fromtimestamp(started_at).isoformat(),
+                    "result_received_at": datetime.now().isoformat(),
+                    "clock_offset":        clock_offset,
+                }, f, indent=2)
         runs.append(entry)
         print(f"[BASELINE:{ctx.name}] block {block_index} {k}/{n} -> {entry['status']}")
 
@@ -1844,6 +1860,7 @@ def main() -> None:
     parser.add_argument("--rerun-completed", action="store_true",
                         help="Deploy runs again even if metadata + merged_analysis already exist.")
     args = parser.parse_args()
+    args.results_dir = args.results_dir.resolve()
 
     if not args.config.exists():
         print(f"[ERROR] Config not found: {args.config}")

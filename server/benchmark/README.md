@@ -30,7 +30,7 @@ Use `experiment_names` in `benchmark_config.json`:
 ```json
 {
   "experiment_names": [
-    "scenario_cifar10_knn_benchmark",
+    "scenario_cifar10_knn",
     "scenario_cifar10_nearest_centroid",
     "scenario_cifar10_kmeans"
   ]
@@ -74,7 +74,7 @@ retraining triggered by the pipeline itself):
    ```
    If this folder does not exist, `build_scenario_context()` raises `FileNotFoundError`
    immediately. Copy an existing scenario of the same classifier type
-   (`scenario_cifar10_knn_benchmark`, `_nearest_centroid`, or `_kmeans`) as a starting
+   (`scenario_cifar10_knn`, `_nearest_centroid`, or `_kmeans`) as a starting
    point for `config.json`, `main.py`, and `create_initial_state.py`.
 
 2. **Drop in your already-trained model.** Place these files under
@@ -120,8 +120,8 @@ retraining triggered by the pipeline itself):
 5. **Register the scenario.** Add `"scenario_<name>"` (the exact folder name, not an
    alias) to `experiment_names` in `server/benchmark/benchmark_config.json` — see
    [Scenario List](#scenario-list). Double-check the name matches the folder exactly;
-   a mismatch (e.g. `"scenario_cifar10_knn"` vs. the actual
-   `scenario_cifar10_knn_benchmark` folder) fails with the same `FileNotFoundError` as
+   a mismatch (e.g. `"scenario_cifar10_knn_benchmark"` vs. the actual
+   `scenario_cifar10_knn` folder) fails with the same `FileNotFoundError` as
    step 1.
 
 6. **Do not hand-create these — the pipeline (re)generates them every run:**
@@ -391,7 +391,7 @@ Results are now separated by scenario:
 ```text
 server/benchmark/results/
   benchmark_summary.json
-  scenario_cifar10_knn_benchmark/
+  scenario_cifar10_knn/
     benchmark_summary.json
     baseline_000/
       baseline_summary.json
@@ -655,6 +655,12 @@ After copying a newer `deployment-receiver.py`, restart the service:
 sudo systemctl restart deployment-receiver
 ```
 
+Also restart the service after **any** NATS broker restart (Docker container restart,
+crash, host reboot) — the JetStream push-consumer subscription does not reliably survive
+a broker restart even though the raw NATS connection itself reconnects. Do not rely on
+automatic reconnect/resubscribe; a message can otherwise get stuck undelivered
+(`num_pending` never reaching the consumer) until the receiver is restarted.
+
 If you only need a short manual run, `tmux` is acceptable:
 
 ```bash
@@ -692,12 +698,15 @@ Current `benchmark_config.json` runs:
 
 ```json
 "experiment_names": [
-  "scenario_imagenette_knn",
-  "scenario_cifar10_knn_benchmark",
-  "scenario_imagenette_nearest_centroid",
+  "scenario_cifar10_knn",
+  "scenario_cifar10_kmeans",
   "scenario_cifar10_nearest_centroid",
+  "scenario_imagenette_knn",
   "scenario_imagenette_kmeans",
-  "scenario_cifar10_kmeans"
+  "scenario_imagenette_nearest_centroid",
+  "scenario_rover-lab_knn",
+  "scenario_rover-lab_kmeans",
+  "scenario_rover-lab_nearest_centroid"
 ]
 ```
 
@@ -705,7 +714,7 @@ To benchmark KNN, Nearest Centroid, and KMeans sequentially:
 
 ```json
 "experiment_names": [
-  "scenario_cifar10_knn_benchmark",
+  "scenario_cifar10_knn",
   "scenario_cifar10_nearest_centroid",
   "scenario_cifar10_kmeans"
 ]
@@ -736,3 +745,4 @@ results/                  benchmark outputs
 | `nats.errors.MaxPayloadError` | Use the updated packager and updated Pi `client/deployment-receiver.py`; large deployments are sent chunked |
 | Timeout after deployment | Check that `deployment-receiver.service` is running on the Pi and watch `journalctl -u deployment-receiver -f` |
 | Result folders mixed | Results are separated under `results/<scenario_name>/exp_*`; use `--clean-results` for a fresh sweep |
+| Deployment message stuck (`num_pending` never delivered) after a NATS broker restart | The JetStream push-consumer subscription does not reliably survive a broker restart even though the raw NATS connection reconnects (`reconnected_cb` fires, but delivery can stay stuck). Restart `deployment-receiver.service` on the Pi to force a fresh subscription — do not rely on automatic reconnect/resubscribe. Restart the Pi service after every NATS restart (Docker restart, crash, host reboot), not just after copying new code. |

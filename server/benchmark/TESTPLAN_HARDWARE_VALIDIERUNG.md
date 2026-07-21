@@ -590,6 +590,16 @@ Sobald Abschnitt 7 abgehakt und plausibel ist:
   in `handle_time_sync()` hin (siehe Warnung in `PLAN_ZEIT_HANDSHAKE.md` Abschnitt 1) —
   zuerst dort nachsehen, nicht die Korrekturformel in `analyze_benchmark.py` in Frage
   stellen.
+  **Nachtrag (Folgesession):** Diese Vermutung geprüft und verworfen — sowohl
+  `handle_time_sync()` ([client/deployment-receiver.py:354-359](../../client/deployment-receiver.py))
+  als auch `_measure_clock_offset()` ([benchmark_pipeline.py:915-943](benchmark_pipeline.py))
+  erfassen ihre Zeitstempel bereits unmittelbar (keine Awaits/Blockierung dazwischen).
+  Das beobachtete Muster (Round-Trip klein & über alle 6 Zellen stabil bei 7-12 ms, Offset
+  groß & auf < 1 ms stabil bei ≈ -0,248 s) ist die erwartete Signatur einer **echten**
+  Uhrendifferenz zwischen Hans' Systemuhr und der PC-Uhr (z. B. fehlender NTP-Sync auf dem
+  Pi), nicht eines Messfehlers im Handshake-Code. Kein Code-Fix nötig — die bestehende
+  Offset-Korrektur behandelt das bereits richtig (siehe 7.1 Punkt 4). Vor dem produktiven
+  Sweep ggf. `timedatectl`/NTP-Sync auf Hans prüfen, wenn ein kleinerer Offset gewünscht ist.
 - Falls Rover-Lab-Läufe scheitern: zuerst `test_data_dirs`/Dataset-Export prüfen (Risiko
   #2), erst danach den Szenario-Code selbst verdächtigen — die Konfiguration ist neuer
   als der zugrunde liegende Harness-Code.
@@ -725,3 +735,181 @@ Liest die Auflösung jetzt dynamisch aus dem geladenen TFLite-Modell aus, statt 
 hartzucodieren — funktioniert damit unabhängig von der tatsächlichen Szenario-Auflösung.
 Syntax aller drei Dateien geprüft (`ast.parse`); funktionale Verifikation durch den
 Testlauf selbst (siehe Abschnitt 7.3).
+
+---
+
+## 11. In der Folgesession behobene Befunde (2026-07-21, Fortsetzung)
+
+Alle unten gelisteten Punkte wurden in der auf diesen Testlauf folgenden Session
+bearbeitet. Syntax aller geänderten Python-Dateien geprüft (`ast.parse`); kein Zugriff
+auf echte Hardware in dieser Session — funktionale Verifikation steht beim nächsten
+echten Deployment auf Hans noch aus (insbesondere 10.1/10.2/10.4/7.6).
+
+### 11.1 Befund 10.1 (k-Mismatch) — behoben, KNN + Kmeans; Nearest-Centroid bewusst unverändert
+
+- **KNN-Szenarien** (`scenario_cifar10_knn`, `scenario_imagenette_knn`,
+  `scenario_rover-lab_knn`): `create_initial_state.py` liest `KNN_K` jetzt aus
+  `config.json`s `tinylcm.adaptive_classifier.k` statt hartcodiert `5`.
+- **Kmeans-Szenarien** (`scenario_cifar10_kmeans`, `scenario_imagenette_kmeans`,
+  `scenario_rover-lab_kmeans`): gleicher Bug zusätzlich entdeckt und behoben — betraf
+  `KMeansPrototypeClassifier` genauso (via `set_state()` in `tinylcm_python/knn.py`).
+  Zusätzlich `KMEANS_M_PROTOTYPES` aus `config.json`s `m_prototypes` gelesen (gleiche
+  Bug-Klasse, war bisher nur zufällig konsistent).
+- **Nearest-Centroid-Szenarien**: **kein Bug** — `NearestCentroidClassifier.fit()`
+  setzt `k` immer selbst auf die Klassenanzahl, unabhängig von Config oder Konstante
+  (siehe `tinylcm_python/prototype_classifier.py`). `KNN_K`/`KMEANS_M_PROTOTYPES` dort
+  auskommentiert statt aktiviert (siehe 11.5).
+- `"knn_k"`-Feld in `knn_reference_stats.json` liest jetzt überall `knn.k` (den
+  tatsächlichen Laufzeit-Wert) statt der Konstante — behebt die falsche `"knn_k": 5`
+  Angabe für Nearest-Centroid, wo der reale k-Wert die Klassenanzahl ist.
+- **Offen:** Initial States müssen beim nächsten Deploy automatisch neu gebaut werden
+  (passiert bei jedem `create_initial_state()`-Aufruf ohnehin), kein manueller Schritt
+  nötig — aber noch nicht auf Hans verifiziert.
+
+### 11.2 Befund 10.2 (kein Auto-Cleanup alter Deployments) — behoben
+
+`client/deployment-receiver.py`: neue Funktion `_cleanup_old_deployments()`, aufgerufen
+nach jedem erfolgreichen `start_new()` in `process_deployment_zip()`. Löscht alle
+`deployment_*`-Ordner außer dem gerade gestarteten — ein zustandsloser
+Verzeichnis-Scan, der auch Service-Neustarts übersteht (im Gegensatz zum bisherigen
+`DeploymentManager.current_path`-Tracking, das bei jedem Prozess-Neustart bei `None`
+beginnt).
+
+**Nachtrag (nach Rückfrage zur Wechselwirkung mit 10.3):** Ohne Schutzmaßnahme hätte
+das aggressive Löschen einen Ordner, der durch einen Service-Neustart nach einem
+NATS-Neustart (siehe 10.3) verwaist ist (Logs nie übertragen, da das In-Memory-Tracking
+verloren ging), beim nächsten erfolgreichen Deploy unwiderruflich entfernt — ohne
+Chance auf nachträgliche Fehlersuche. Ergänzt: `DEPLOYMENT_CLEANUP_GRACE_S = 3600`
+(1 h Gnadenfrist über `entry.stat().st_mtime`) — ein Ordner wird erst gelöscht, wenn er
+seit mind. 1 h nicht mehr angefasst wurde — plus ein `logging.info()` mit Ordnername
+und Alter unmittelbar vor jedem `shutil.rmtree()`, damit auch nach der Löschung ein
+Eintrag in `journalctl -u deployment-receiver` bleibt.
+
+### 11.3 Befund 10.3 (JetStream-Subscription übersteht Broker-Neustart nicht) — nur Runbook, kein Code-Fix
+
+Bewusste Entscheidung: kein Code-Änderung (Risiko kurz vor dem produktiven Sweep),
+stattdessen zwei neue Doku-Stellen in `README.md`:
+- Troubleshooting-Tabelle: neue Zeile "Deployment message stuck... after a NATS broker
+  restart".
+- Abschnitt "Raspberry Pi Receiver Over SSH": Hinweis, `deployment-receiver.service`
+  nach *jedem* NATS-Neustart neu zu starten, nicht nur nach Code-Updates.
+
+### 11.4 Befund 10.4 (Crash bei relativem `--results-dir`) — behoben
+
+`benchmark_pipeline.py::main()`: `args.results_dir = args.results_dir.resolve()`
+direkt nach `parser.parse_args()` — macht den Pfad immer absolut, behebt den
+`Path.relative_to()`-Crash an der Wurzel statt nur an der einen betroffenen Zeile.
+
+### 11.5 Befund 10.5 (Konsolen-Rauschen bei Initial-State-Erstellung) — behoben
+
+Der unaufgefordert gedruckte "Empfohlene KNNDistanceMonitor-Konfiguration"-Block
+(Berechnung von `suggested_delta`/`suggested_lambda`/`stable_classes` + der große
+JSON-Beispiel-Print) aus allen 9 Kopien von `create_initial_state.py` entfernt. Die
+eigentliche Berechnung und Speicherung von `knn_reference_stats.json` (potenziell für
+künftige `KNNDistanceMonitor`-Konfiguration nützlich) bleibt unverändert erhalten —
+nur die Konsolenausgabe ist weg.
+
+Im selben Aufwasch (nicht explizit in 10.5 gefordert, aber zur Portierung des k-Fixes
+angefallen): in den 6 Kopien mit `CLASSIFIER_TYPE`-Switch (`_nearest_centroid`/
+`_kmeans`-Szenarien) wurden die jeweils zwei toten Klassifikator-Zweige, tote Imports
+und die nie aufgerufene Funktion `calculate_knn_distance_statistics()` (Duplikat von
+`..._from_knn`) auskommentiert statt gelöscht — Kommentare erklären jeweils, warum
+(Portierbarkeit zwischen den 9 Szenario-Kopien).
+
+### 11.6 Befund 10.6 (`initial_state/`-Dateien trotz `.gitignore` getrackt) — bereits erledigt, keine Aktion nötig
+
+Geprüft: `git ls-files` zeigt keine getrackten Dateien mehr unter irgendeinem
+`initial_state/`-Pfad, `.gitignore` enthält alle 9 Einträge, `git status` zeigt keine
+offenen Staging-Reste. Der Commit `8900ebd` ("Initial test run") hat die in Abschnitt
+10.6 beschriebene `git rm --cached`-Änderung offenbar bereits mit committet.
+
+### 11.7 Befund 10.7 (stale `scenario_cifar10_knn_benchmark`-Referenzen) — behoben, Scope erweitert
+
+Alle Vorkommen von `scenario_cifar10_knn_benchmark` in `README.md` auf
+`scenario_cifar10_knn` korrigiert (Scenario-List-Beispiel, Setup-Anleitung,
+Mismatch-Beispiel in Schritt 5, Result-Layout-Baum). Zusätzlich (nach Rückfrage)
+die Sektion "Current Default Config" komplett auf die tatsächlichen 9 Szenarien
+aktualisiert — sie listete vorher nur 6 und darunter noch den falschen Namen; die
+3 rover-lab-Szenarien fehlten komplett.
+
+### 11.8 Befund 7.1 (Uhren-Offset ≈ -0,248 s) — Ursache untersucht, kein Code-Bug; neuer Audit-Check ergänzt
+
+**Untersuchungsergebnis:** Die in Abschnitt 9 geäußerte Vermutung (blockierende
+Operation vor der Zeitstempel-Erfassung in `handle_time_sync()`) trifft **nicht** zu.
+Sowohl `handle_time_sync()` (Pi-Seite, `client/deployment-receiver.py:354-359`) als
+auch `_measure_clock_offset()` (PC-Seite, `benchmark_pipeline.py:915-943`) erfassen
+ihre Zeitstempel bereits unmittelbar, ohne Awaits/Blockierung dazwischen — verifiziert
+durch Code-Lesen, nicht durch erneuten Hardware-Test. Das beobachtete Muster (Round-Trip
+klein und über alle 6 Zellen stabil bei 7-12 ms, Offset groß und auf < 1 ms stabil bei
+≈ -0,248 s) ist die erwartete Signatur einer **echten** Uhrendifferenz zwischen Hans'
+Systemuhr und der PC-Uhr, nicht eines Messfehlers im Handshake-Code. Siehe auch den
+Nachtrag in Abschnitt 9 sowie den entsprechenden Nachtrag in
+`MESSMETHODIK_ZEITSYNCHRONISATION.md` §5 Punkt 7.
+
+**Nutzerfrage dazu:** Der Handshake läuft bereits vor **jedem einzelnen** Deploy
+(jedes Experiment und jeder der 3 Baseline-Runs pro Block, nicht nur einmal global) —
+das war schon vor dieser Session so implementiert (siehe Abschnitt 1.2). Was fehlte,
+war ein automatisierter Konsistenz-Check des gemessenen Werts (in
+`MESSMETHODIK_ZEITSYNCHRONISATION.md` §5 Punkt 7 nur als Konzept beschrieben, nie
+implementiert) — jetzt ergänzt:
+
+**Fix:** `analysis/verify_power_coverage.py` bekommt einen neuen Check 7: liest
+`clock_offset.offset_s`/`round_trip_s` aus der Metadatei jedes Laufs (Experiment- und
+Baseline-Run-Ordner gleichermaßen, dank 7.6-Fix auch für Baseline-Runs verfügbar),
+schreibt beide Werte als neue Spalten (`clock_offset_s`, `clock_offset_round_trip_s`)
+in `power_coverage_audit.csv` und meldet `WARN`, wenn `|offset_s|` den bestehenden
+`--offset-warn`-Schwellenwert (Default 1,0 s, bisher nur für den unzuverlässigen
+Kreuzkorrelations-Check verwendet) überschreitet. Die aggregierte "Paper numbers"-
+Ausgabe zeigt zusätzlich Median/Maximum des gemessenen Offsets über den gesamten
+Sweep. Bewusst ein fixer Sanity-Schwellenwert, keine automatisierte Prüfung gegen die
+historische kausale Schranke aus Abschnitt 5.1 (andere Hardware/Kampagne, laut
+Dokument selbst nicht 1:1 übertragbar) — dieser Vergleich bleibt manuelle
+Interpretation wie in diesem Testlauf.
+
+### 11.9 Befund 7.6 (fehlende Timestamps für Baseline-Runs) — behoben
+
+`run_baseline_block()` in `benchmark_pipeline.py` schreibt jetzt pro Run eine eigene
+`experiment_metadata.json` in den jeweiligen Run-Unterordner (`baseline_XXX_runK/`,
+wo auch `power_*.csv`/`resource_usage_*.csv` bereits liegen) mit `started_at`,
+`result_received_at` und `clock_offset` — spiegelt exakt den Experiment-Pfad.
+`verify_power_coverage.py::read_metadata()`/`discover_experiments()` brauchten dafür
+keine Änderung, da sie bereits nach genau diesem Dateinamen suchen. Damit greift der
+kausale Containment-Check (Punkt 2) jetzt auch für alle Baseline-Runs, nicht nur für
+echte Experimente.
+
+### 11.10 Zusatzbefund: `power.rate` in der produktiven Config war stale (5.0 statt 8.0)
+
+Beim Durchsehen von Abschnitt 8.2 aufgefallen: Die produktive `benchmark_config.json`
+hatte weiterhin `"power": {"rate": 5.0}` — obwohl `test_config_validation.json` (dieser
+Testlauf) bereits korrekt `8.0` verwendete und `dsp3005_reader.py`s `DEFAULT_RATE` seit
+der in Abschnitt 1.6 dokumentierten Sampling-Rate-Verbesserung `8.0` ist. Da
+`power_cfg.get("rate", 8.0)` den expliziten Config-Wert immer vor dem Fallback zieht,
+hätte der produktive Sweep sonst stillschweigend wieder mit der alten, gröberen 5-Hz-Rate
+gelaufen. **Fix (angewendet, nach Rückfrage):** `benchmark_config.json`s `power.rate` auf
+`8.0` gesetzt. `power.port` wurde parallel vom Nutzer selbst von `COM3` auf `COM5`
+aktualisiert (echter Port von Hans, siehe Abschnitt 4.7/8.2) — nicht von dieser Session
+verändert, hier nur zur Vollständigkeit vermerkt.
+
+### 11.11 Grobe Zeitschätzung für den produktiven Sweep (informativ, kein Fix)
+
+Auf Nutzeranfrage aus den echten `started_at`/`result_received_at`-Zeitstempeln des
+Testlaufs (`results_validation/`, `test_images_per_class=5`) berechnet: fixer
+Overhead (Deploy + Pi-Setup + Log-Merge, aus `total_cycle_s − inference_window_s`)
+getrennt von der Inferenzzeit/Bild, dann auf die produktive Config
+(`test_images_per_class=20`, 12 `samples_per_class`, 2 PCA-Modi, 10 Seeds ⇒ 240
+Experimente + 72 Baseline-Runs = 312 Deployments je Szenario, 2808 insgesamt über alle
+9 Szenarien) hochskaliert:
+
+| Datensatz | Testbilder/Lauf | ~Zeit/Deployment | Familie (3 Klassifikatoren) |
+|---|---|---|---|
+| CIFAR-10 | 200 | ~61 s | ~15,9 h |
+| Imagenette | 200 | ~134 s | ~34,8 h |
+| Rover-Lab | 40 | ~31 s | ~8,0 h |
+
+**Ergebnis: ≈ 58,6 h ≈ 2,4 Tage** reiner Deploy-Zyklen — ein optimistischer Boden, kein
+belastbarer Endwert. Nicht mit eingerechnet: `create_initial_state()` läuft PC-seitig
+**vor** `started_at` (in den gemessenen Zykluszeiten also gar nicht enthalten) und
+skaliert mit `samples_per_class` (bis 100/Klasse); außerdem keine Zeit für
+Timeouts/Retries, Chunked-Transfer bei großen Imagenette-Deployments, oder die laut
+10.3 zu erwartenden gelegentlichen NATS-/Service-Neustarts. Realistische Erwartung:
+**3–4 Tage unbeaufsichtigter Lauf statt 2,4 Tage**.

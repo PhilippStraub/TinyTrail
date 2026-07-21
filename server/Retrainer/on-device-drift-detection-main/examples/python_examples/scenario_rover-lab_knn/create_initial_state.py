@@ -58,7 +58,10 @@ FEATURE_PROCESSOR_PATH = str(current_dir / "model/feature_processor.npz")
 TARGET_IMG_SIZE = (160, 160)  # Inferenzauflösung
 
 # Konfiguration für den LightweightKNN
-KNN_K = 5  # k-nearest neighbors
+# k wird aus config.json gelesen, damit dieser Wert nie wieder von der Config
+# abweichen kann (siehe TESTPLAN_HARDWARE_VALIDIERUNG.md, Befund 10.1).
+with open(current_dir / "config.json") as _cfg_f:
+    KNN_K = json.load(_cfg_f)["tinylcm"]["adaptive_classifier"]["k"]
 KNN_MAX_SAMPLES = 500  # Maximum samples to retain
 KNN_DISTANCE_METRIC = "euclidean"  # Metrik für den Abstandsvergleich
 KNN_USE_NUMPY = True  # (deprecated) Laufzeit nutzt immer NumPy-Vektorisierung
@@ -640,38 +643,6 @@ def build_initial_state(samples_per_class=None, seed=42, no_pca=False,
             with open(reference_stats_path, 'w') as f:
                 json.dump(reference_stats, f, indent=4)
             print(f"Referenzstatistiken erfolgreich gespeichert in: {reference_stats_path}")
-            
-            # Gib Empfehlung für die Konfiguration
-            reference_mean = reference_stats['reference_mean']
-            # Empfehle einen guten Delta-Wert basierend auf den Klassendistanzen
-            suggested_delta = reference_stats['reference_std'] * 0.5
-            suggested_lambda = reference_stats['reference_std'] * 5.0
-            
-            print("\nEmpfohlene KNNDistanceMonitor-Konfiguration basierend auf den Statistiken:")
-            stable_classes = list(CLASSES.keys())
-            print(f'''
-    "drift_detectors": [
-      {{
-        "type": "KNNDistanceMonitor",
-        "delta": {suggested_delta:.2f},
-        "lambda_threshold": {suggested_lambda:.2f},
-        "exit_threshold_factor": 0.7,
-        "high_confidence_threshold": 0.9,
-        "stable_known_classes": {stable_classes},
-        "reference_stats_path": "./initial_state/{OUTPUT_REFERENCE_STATS_FILENAME}",
-        "warm_up_samples": 5,
-        "reference_update_interval": 100,
-        "reference_update_factor": 0.05,
-        "pause_reference_update_during_drift": true,
-        "drift_cooldown_period": 30,
-        "use_adaptive_thresholds": false,
-        "allow_runtime_threshold_adaptation": false,
-        "adaptive_delta_std_multiplier": 1.5,
-        "adaptive_lambda_std_multiplier": 5.0
-      }}
-    ]
-            ''')
-            
         except Exception as e:
             print(f"FEHLER beim Speichern der Referenzstatistiken: {e}")
     else:

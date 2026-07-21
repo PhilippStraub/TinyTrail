@@ -29,10 +29,10 @@ except ImportError:
     except ImportError:
         TFLITE_RUNTIME_AVAILABLE = False
 
-from tinylcm_python.knn import LightweightKNN
+# from tinylcm_python.knn import LightweightKNN  # nur für CLASSIFIER_TYPE == "knn" benötigt (hier: "nearest_centroid")
 from tinylcm_python.prototype_classifier import (
     NearestCentroidClassifier,
-    KMeansPrototypeClassifier,
+    # KMeansPrototypeClassifier,  # nur für CLASSIFIER_TYPE == "kmeans" benötigt (hier: "nearest_centroid")
 )
 from tinylcm_python.scaler_pca import StandardScalerPCATransformer
 from tinylcm_python.qparams import get_qparams
@@ -62,17 +62,23 @@ FEATURE_PROCESSOR_PATH = str(current_dir / "model/feature_processor.npz")
 TARGET_IMG_SIZE = (160, 160)  # Inferenzauflösung
 
 # Konfiguration für den LightweightKNN
-KNN_K = 5  # k-nearest neighbors
-KNN_MAX_SAMPLES = 500  # Maximum samples to retain
+# KNN_K wird von NearestCentroidClassifier nicht verwendet: fit() setzt self.k immer
+# selbst auf die Klassenanzahl (siehe prototype_classifier.py, NearestCentroidClassifier
+# .fit()), unabhängig von config.json oder dieser Konstante — anders als bei KNN/Kmeans
+# (siehe TESTPLAN_HARDWARE_VALIDIERUNG.md, Befund 10.1) ist das hier kein Bug, sondern
+# Absicht. Deshalb bleibt der Config-Read hier auskommentiert statt aktiviert.
+# with open(current_dir / "config.json") as _cfg_f:
+#     KNN_K = json.load(_cfg_f)["tinylcm"]["adaptive_classifier"]["k"]
+KNN_MAX_SAMPLES = 500  # Maximum samples to retain (CLI-Fallback für samples_per_class)
 KNN_DISTANCE_METRIC = "euclidean"  # Metrik für den Abstandsvergleich
-KNN_USE_NUMPY = True  # (deprecated) Laufzeit nutzt immer NumPy-Vektorisierung
+# KNN_USE_NUMPY = True  # (deprecated, nirgends mehr referenziert) Laufzeit nutzt immer NumPy-Vektorisierung
 
 # Klassifikator-Typ für den initialen Zustand (muss zu config.json passen):
 #   "knn"             -> LightweightKNN (alle balancierten Samples)
 #   "nearest_centroid"-> NearestCentroidClassifier (1 Prototyp/Klasse = Mittelwert)
 #   "kmeans"          -> KMeansPrototypeClassifier (m Prototypen/Klasse via K-Means)
 CLASSIFIER_TYPE = "nearest_centroid"
-KMEANS_M_PROTOTYPES = 5  # Anzahl Prototypen pro Klasse für CLASSIFIER_TYPE == "kmeans"
+# KMEANS_M_PROTOTYPES = 5  # nur für CLASSIFIER_TYPE == "kmeans" benötigt (hier: "nearest_centroid")
 
 # Speicherort für den initialen k-NN Zustand
 OUTPUT_STATE_DIR = current_dir / "initial_state"  # Scenario initial_state directory
@@ -164,105 +170,108 @@ def extract_features_manually(
 
     return feature_tensor
 
-def calculate_knn_distance_statistics(knn_instance, all_features, all_labels):
-    """Berechne LOO-Statistiken über KNN-Distanzen (kompatibel zu Runtime-Distanzen).
-
-    - Entfernt Selbst-Nachbar (Distanz ~ 0) via Leave-One-Out.
-    - Nutzt dieselbe Distanzskala wie zur Laufzeit (euclidische Distanzen, nicht quadriert).
-    """
-    print("Berechne KNN-Distanz-Statistiken (Leave-One-Out) für initiale Referenz...")
-
-    # Sicherheitschecks
-    if knn_instance.X_train is None or len(knn_instance.X_train) == 0:
-        print("FEHLER: KNN ist leer, kann keine Distanzen berechnen")
-        return {}
-
-    k = int(getattr(knn_instance, 'k', 5))
-    metric = str(getattr(knn_instance, 'distance_metric', 'euclidean')).lower()
-    is_euclidean = 'euclidean' in metric
-
-    all_avg_distances = []
-    avg_distances_by_class = {}
-
-    print(f"Berechne Distanzen für {len(all_features)} Samples (k={k}, metric={metric})...")
-
-    X = knn_instance.X_train.astype(np.float32)
-    eps = 1e-12
-
-    for i, (feature, label) in enumerate(zip(all_features, all_labels)):
-        q = np.asarray(feature, dtype=np.float32)
-        # Vollständige Distanzberechnung zu allen Train-Samples
-        d = knn_instance._compute_distances(q)
-        d = np.asarray(d)
-
-        # Leave-One-Out: Selbsttreffer (Distanz ~ 0) entfernen
-        if is_euclidean:
-            mask = d > eps  # d sind quadrierte Distanzen
-            d_filtered = d[mask]
-        else:
-            # Cosine-Distanz (1 - cos): 0 bei identischem Vektor
-            mask = d > eps
-            d_filtered = d[mask]
-
-        if d_filtered.size == 0:
-            continue
-
-        # Wähle k nächstgelegene Distanzen
-        kk = min(k, d_filtered.shape[0])
-        idx = np.argpartition(d_filtered, kk - 1)[:kk]
-        dk = d_filtered[idx]
-
-        # Skala an Runtime anpassen: euclidische Distanz (nicht quadriert)
-        if is_euclidean:
-            dk = np.sqrt(np.maximum(dk, 0.0))
-
-        avg_distance = float(np.mean(dk))
-        all_avg_distances.append(avg_distance)
-
-        if label not in avg_distances_by_class:
-            avg_distances_by_class[label] = []
-        avg_distances_by_class[label].append(avg_distance)
-
-        if i % 50 == 0:
-            print(f"  Fortschritt: {i}/{len(all_features)} | Beispiel Label={label}, Distanzen={np.sort(dk).tolist()}, Mittel={avg_distance:.4f}")
-
-    if len(all_avg_distances) == 0:
-        print("WARNUNG: Keine Distanzen berechnet!")
-        return {}
-
-    mean_distance = float(np.mean(all_avg_distances))
-    std_distance = float(np.std(all_avg_distances))
-    min_distance = float(np.min(all_avg_distances))
-    max_distance = float(np.max(all_avg_distances))
-
-    print("Globale KNN-Distanz-Statistiken (LOO, Runtime-Skala):")
-    print(f"  Mean: {mean_distance:.4f}")
-    print(f"  Std: {std_distance:.4f}")
-    print(f"  Min: {min_distance:.4f}")
-    print(f"  Max: {max_distance:.4f}")
-
-    class_stats = {}
-    for label, distances in avg_distances_by_class.items():
-        class_mean = float(np.mean(distances))
-        class_std = float(np.std(distances))
-        class_stats[label] = {
-            'mean': class_mean,
-            'std': class_std,
-            'min': float(np.min(distances)),
-            'max': float(np.max(distances)),
-            'count': len(distances)
-        }
-        print(f"Klasse {label}: Mean={class_mean:.4f}, Std={class_std:.4f}, Count={len(distances)}")
-
-    return {
-        'reference_mean': mean_distance,
-        'reference_std': std_distance,
-        'min_distance': min_distance,
-        'max_distance': max_distance,
-        'sample_count': len(all_avg_distances),
-        'class_statistics': class_stats,
-        'generation_timestamp': datetime.now().isoformat()
-    }
+# Unbenutzt: nirgends aufgerufen, nur calculate_knn_distance_statistics_from_knn()
+# (unten) wird tatsächlich verwendet. Auskommentiert statt gelöscht, da identischer
+# toter Code auch in den anderen 8 create_initial_state.py-Kopien steckt.
+# def calculate_knn_distance_statistics(knn_instance, all_features, all_labels):
+#     """Berechne LOO-Statistiken über KNN-Distanzen (kompatibel zu Runtime-Distanzen).
+#
+#     - Entfernt Selbst-Nachbar (Distanz ~ 0) via Leave-One-Out.
+#     - Nutzt dieselbe Distanzskala wie zur Laufzeit (euclidische Distanzen, nicht quadriert).
+#     """
+#     print("Berechne KNN-Distanz-Statistiken (Leave-One-Out) für initiale Referenz...")
+#
+#     # Sicherheitschecks
+#     if knn_instance.X_train is None or len(knn_instance.X_train) == 0:
+#         print("FEHLER: KNN ist leer, kann keine Distanzen berechnen")
+#         return {}
+#
+#     k = int(getattr(knn_instance, 'k', 5))
+#     metric = str(getattr(knn_instance, 'distance_metric', 'euclidean')).lower()
+#     is_euclidean = 'euclidean' in metric
+#
+#     all_avg_distances = []
+#     avg_distances_by_class = {}
+#
+#     print(f"Berechne Distanzen für {len(all_features)} Samples (k={k}, metric={metric})...")
+#
+#     X = knn_instance.X_train.astype(np.float32)
+#     eps = 1e-12
+#
+#     for i, (feature, label) in enumerate(zip(all_features, all_labels)):
+#         q = np.asarray(feature, dtype=np.float32)
+#         # Vollständige Distanzberechnung zu allen Train-Samples
+#         d = knn_instance._compute_distances(q)
+#         d = np.asarray(d)
+#
+#         # Leave-One-Out: Selbsttreffer (Distanz ~ 0) entfernen
+#         if is_euclidean:
+#             mask = d > eps  # d sind quadrierte Distanzen
+#             d_filtered = d[mask]
+#         else:
+#             # Cosine-Distanz (1 - cos): 0 bei identischem Vektor
+#             mask = d > eps
+#             d_filtered = d[mask]
+#
+#         if d_filtered.size == 0:
+#             continue
+#
+#         # Wähle k nächstgelegene Distanzen
+#         kk = min(k, d_filtered.shape[0])
+#         idx = np.argpartition(d_filtered, kk - 1)[:kk]
+#         dk = d_filtered[idx]
+#
+#         # Skala an Runtime anpassen: euclidische Distanz (nicht quadriert)
+#         if is_euclidean:
+#             dk = np.sqrt(np.maximum(dk, 0.0))
+#
+#         avg_distance = float(np.mean(dk))
+#         all_avg_distances.append(avg_distance)
+#
+#         if label not in avg_distances_by_class:
+#             avg_distances_by_class[label] = []
+#         avg_distances_by_class[label].append(avg_distance)
+#
+#         if i % 50 == 0:
+#             print(f"  Fortschritt: {i}/{len(all_features)} | Beispiel Label={label}, Distanzen={np.sort(dk).tolist()}, Mittel={avg_distance:.4f}")
+#
+#     if len(all_avg_distances) == 0:
+#         print("WARNUNG: Keine Distanzen berechnet!")
+#         return {}
+#
+#     mean_distance = float(np.mean(all_avg_distances))
+#     std_distance = float(np.std(all_avg_distances))
+#     min_distance = float(np.min(all_avg_distances))
+#     max_distance = float(np.max(all_avg_distances))
+#
+#     print("Globale KNN-Distanz-Statistiken (LOO, Runtime-Skala):")
+#     print(f"  Mean: {mean_distance:.4f}")
+#     print(f"  Std: {std_distance:.4f}")
+#     print(f"  Min: {min_distance:.4f}")
+#     print(f"  Max: {max_distance:.4f}")
+#
+#     class_stats = {}
+#     for label, distances in avg_distances_by_class.items():
+#         class_mean = float(np.mean(distances))
+#         class_std = float(np.std(distances))
+#         class_stats[label] = {
+#             'mean': class_mean,
+#             'std': class_std,
+#             'min': float(np.min(distances)),
+#             'max': float(np.max(distances)),
+#             'count': len(distances)
+#         }
+#         print(f"Klasse {label}: Mean={class_mean:.4f}, Std={class_std:.4f}, Count={len(distances)}")
+#
+#     return {
+#         'reference_mean': mean_distance,
+#         'reference_std': std_distance,
+#         'min_distance': min_distance,
+#         'max_distance': max_distance,
+#         'sample_count': len(all_avg_distances),
+#         'class_statistics': class_stats,
+#         'generation_timestamp': datetime.now().isoformat()
+#     }
 
 
 def calculate_knn_distance_statistics_from_knn(knn_instance):
@@ -513,21 +522,24 @@ def build_initial_state(samples_per_class=None, seed=42, no_pca=False,
             distance_metric=KNN_DISTANCE_METRIC,
         )
         print("Klassifikator: NearestCentroidClassifier (1 Prototyp pro Klasse)")
-    elif CLASSIFIER_TYPE == "kmeans":
-        knn = KMeansPrototypeClassifier(
-            m_prototypes=KMEANS_M_PROTOTYPES,
-            k=KNN_K,
-            max_samples=knn_max_samples,
-            distance_metric=KNN_DISTANCE_METRIC,
-        )
-        print(f"Klassifikator: KMeansPrototypeClassifier ({KMEANS_M_PROTOTYPES} Prototypen pro Klasse)")
-    else:
-        knn = LightweightKNN(
-            k=KNN_K,
-            max_samples=knn_max_samples,
-            distance_metric=KNN_DISTANCE_METRIC
-        )
-        print("Klassifikator: LightweightKNN (alle balancierten Samples)")
+    # CLASSIFIER_TYPE ist in dieser Datei fest auf "nearest_centroid" gesetzt
+    # (Zeile ~74) — die anderen beiden Zweige des gemeinsamen Templates sind hier
+    # toter Code und nur zur Portierung in die anderen Kopien auskommentiert.
+    # elif CLASSIFIER_TYPE == "kmeans":
+    #     knn = KMeansPrototypeClassifier(
+    #         m_prototypes=KMEANS_M_PROTOTYPES,
+    #         k=KNN_K,
+    #         max_samples=knn_max_samples,
+    #         distance_metric=KNN_DISTANCE_METRIC,
+    #     )
+    #     print(f"Klassifikator: KMeansPrototypeClassifier ({KMEANS_M_PROTOTYPES} Prototypen pro Klasse)")
+    # else:
+    #     knn = LightweightKNN(
+    #         k=KNN_K,
+    #         max_samples=knn_max_samples,
+    #         distance_metric=KNN_DISTANCE_METRIC
+    #     )
+    #     print("Klassifikator: LightweightKNN (alle balancierten Samples)")
 
     # Balanciere die Klassen, damit alle gleichmäßig vertreten sind
     # Gruppiere Samples nach Klassen
@@ -599,12 +611,13 @@ def build_initial_state(samples_per_class=None, seed=42, no_pca=False,
         for i in idx:
             selected_features.append(data['features'][i])
             selected_labels.append(label)
-            if CLASSIFIER_TYPE == "knn":
-                knn.add_sample(
-                    feature=data['features'][i],
-                    label=label,
-                    timestamp=time.time()
-                )
+            # Nur für CLASSIFIER_TYPE == "knn" relevant (hier: "nearest_centroid", nie wahr):
+            # if CLASSIFIER_TYPE == "knn":
+            #     knn.add_sample(
+            #         feature=data['features'][i],
+            #         label=label,
+            #         timestamp=time.time()
+            #     )
         selected_indices_per_class[label] = idx.tolist()
         per_class_counts[label] = count
 
@@ -666,7 +679,7 @@ def build_initial_state(samples_per_class=None, seed=42, no_pca=False,
         reference_stats.update({
             "description": f"Reference statistics for KNNDistanceMonitor based on {len(balanced_features_np)} balanced samples",
             "model_path": MODEL_PATH,
-            "knn_k": KNN_K,
+            "knn_k": knn.k,  # tatsächlicher Laufzeit-k (Klassenanzahl, nicht die tote KNN_K-Konstante)
             "feature_dimension": actual_feature_dimension,
             "classes": list(set(balanced_labels))
         })
@@ -677,38 +690,6 @@ def build_initial_state(samples_per_class=None, seed=42, no_pca=False,
             with open(reference_stats_path, 'w') as f:
                 json.dump(reference_stats, f, indent=4)
             print(f"Referenzstatistiken erfolgreich gespeichert in: {reference_stats_path}")
-            
-            # Gib Empfehlung für die Konfiguration
-            reference_mean = reference_stats['reference_mean']
-            # Empfehle einen guten Delta-Wert basierend auf den Klassendistanzen
-            suggested_delta = reference_stats['reference_std'] * 0.5
-            suggested_lambda = reference_stats['reference_std'] * 5.0
-            
-            print("\nEmpfohlene KNNDistanceMonitor-Konfiguration basierend auf den Statistiken:")
-            stable_classes = list(CLASSES.keys())
-            print(f'''
-    "drift_detectors": [
-      {{
-        "type": "KNNDistanceMonitor",
-        "delta": {suggested_delta:.2f},
-        "lambda_threshold": {suggested_lambda:.2f},
-        "exit_threshold_factor": 0.7,
-        "high_confidence_threshold": 0.9,
-        "stable_known_classes": {stable_classes},
-        "reference_stats_path": "./initial_state/{OUTPUT_REFERENCE_STATS_FILENAME}",
-        "warm_up_samples": 5,
-        "reference_update_interval": 100,
-        "reference_update_factor": 0.05,
-        "pause_reference_update_during_drift": true,
-        "drift_cooldown_period": 30,
-        "use_adaptive_thresholds": false,
-        "allow_runtime_threshold_adaptation": false,
-        "adaptive_delta_std_multiplier": 1.5,
-        "adaptive_lambda_std_multiplier": 5.0
-      }}
-    ]
-            ''')
-            
         except Exception as e:
             print(f"FEHLER beim Speichern der Referenzstatistiken: {e}")
     else:
