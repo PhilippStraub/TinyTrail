@@ -178,7 +178,7 @@ der obigen Änderungen mindestens einmal durchlaufen wird:
 
 | # | Szenario | Zweck | PCA | spc | seed |
 |---|---|---|---|---|---|
-| 1 | `scenario_cifar10_knn_benchmark` | Schneller Sanity-Check, kleine Auflösung (32×32) | nopca | 2 | 42 |
+| 1 | `scenario_cifar10_knn` | Schneller Sanity-Check, kleine Auflösung (32×32) | nopca | 2 | 42 |
 | 2 | `scenario_cifar10_nearest_centroid` | Zweiter Klassifikator-Typ, PCA-Pfad + Feature-Processor-Caching | pca95var | 5 | 42 |
 | 3 | `scenario_cifar10_kmeans` | Dritter Klassifikator-Typ | nopca | 2 | 42 |
 | 4 | `scenario_imagenette_knn` | Große Auflösung (224×224) → testet **Chunked Transfer** | pca95var | 2 | 42 |
@@ -370,7 +370,7 @@ produktive `benchmark_config.json` überschreiben):
   "nats_url": "nats://localhost:4222",
 
   "experiment_names": [
-    { "name": "scenario_cifar10_knn_benchmark",
+    { "name": "scenario_cifar10_knn",
       "pca_configs": [{ "enabled": false }],
       "samples_per_class": [2], "seeds": [42] },
     { "name": "scenario_cifar10_nearest_centroid",
@@ -467,77 +467,94 @@ Während des Laufs beobachten:
 
 ---
 
-## 7. Nach dem Testlauf zu prüfende Punkte (Checkliste)
+## 7. Nach dem Testlauf zu prüfende Punkte (Checkliste) — **ausgefüllt, Testlauf durchgeführt 2026-07-21**
 
-Trage hier direkt die Ergebnisse ein oder verlinke eine separate Ergebnisdatei — die
-neue Session braucht das, um die Analyse fortzusetzen.
+Alle 6 Zellen liefen erfolgreich (`Pipeline complete: 6/6 experiments succeeded`), nach dem
+Rover-Lab-Fix (10.8) im zweiten Anlauf. Ergebnisse unten sind aus dem tatsächlichen Lauf.
 
-### 7.1 Clock-Offset-Handshake (höchste Priorität, siehe 1.2)
+### 7.1 Clock-Offset-Handshake (höchste Priorität, siehe 1.2) — ✅ funktioniert, ⚠️ Wert überraschend groß
 
-- [ ] Öffne 2-3 `experiment_metadata.json` aus `results_validation/<scenario>/exp_*/`.
-      Ist `clock_offset.offset_s` vorhanden und plausibel (LAN: ms-Bereich, nicht
-      Sekunden)?
-- [ ] Ist `clock_offset.round_trip_s` über die 6 Zellen stabil (keine Ausreißer > 100 ms)?
-- [ ] Öffne ein `baseline_XXX/baseline_summary.json` — ist dort ebenfalls ein plausibler
-      `clock_offset`-Block vorhanden?
-- [ ] Ergibt `analyze_benchmark.py`s `energy_J_offset_corrected` einen Wert, der nahe an
-      `power.inference_window.energy_J` (unkorrigiert) liegt? Große Abweichung würde auf
-      ein Problem im Vorzeichen/der Fensterlogik hindeuten (siehe
-      `_offset_corrected_power_metrics`, Abschnitt 1.2).
+- [x] `clock_offset.offset_s` vorhanden in allen `experiment_metadata.json` UND
+      `baseline_summary.json` (7 gültige Pings von 7 in jedem Fall geprüft).
+- [x] `round_trip_s` stabil und klein (7-12 ms über alle 6 Zellen) — kein Netzwerkproblem.
+- [ ] **Nicht wie erwartet**: `offset_s` liegt bei konstant **≈ -0,248 s** (nicht ms-Bereich!),
+      über alle 6 Zellen praktisch identisch (-0,2477 bis -0,2482, Streuung < 1 ms). Das ist
+      kein Messfehler (Round-Trips exzellent, Wert extrem reproduzierbar) — die Pi-Uhr liegt
+      real ~248 ms hinter der PC-Uhr. Liegt knapp außerhalb der historischen kausalen
+      Schranke [-0,19s, +3,73s] aus der alten Kampagne (Abschnitt 5.1 MESSMETHODIK) — nach
+      dortigem Konsistenz-Check (Punkt 7) ein Hinweis, dem nachzugehen sich lohnt, auch wenn
+      die alte Schranke von anderer Hardware/Kampagne stammt und nicht 1:1 vergleichbar ist.
+- [x] Offset-Korrektur wirkt sich messbar aus: `net_avg_power_W_local` vs.
+      `net_avg_power_W_offset_corrected` unterscheiden sich um 5-11 % bei den kurzen
+      CIFAR-10/Rover-Lab-Läufen, aber nur ~0,4 % bei Imagenette (langes Fenster) — exakt das
+      in der Doku vorhergesagte 1/T-Skalierungsverhalten. Handshake ist damit sowohl technisch
+      funktionsfähig als auch inhaltlich sinnvoll — validiert den ganzen Sinn der Änderung.
 
-### 7.2 Result-Attribution / Ergebnis-Tagging
+### 7.2 Result-Attribution / Ergebnis-Tagging — ✅ vollständig bestätigt
 
-- [ ] Keine `[RESULT] WARNING: ZIP carries no X-Experiment-Id header`-Meldung in der
-      PC-Konsolenausgabe des Laufs.
-- [ ] Jeder `exp_*`-Ordner unter `results_validation/<scenario>/` enthält genau eine
-      `merged_analysis_*.csv`, die zum jeweiligen `experiment_id` passt (Dateiname/`run_id`
-      innerhalb der CSV vergleichen).
-- [ ] Keine "Attributed stray result to experiment …"-Meldung — falls doch: prüfen, ob
-      der zugehörige Zielordner (`results_validation/<anderes-scenario>/<id>/`) korrekt
-      angelegt wurde statt Daten zu verlieren.
+- [x] Keine einzige `WARNING: ZIP carries no X-Experiment-Id header`-Meldung im gesamten Lauf
+      (0 Treffer über beide Log-Dateien) — jede Übertragung war korrekt getaggt.
+- [x] Genau ein reales Race-Ereignis beobachtet und korrekt behandelt:
+      `baseline_001_run1`s Ergebnis kam verspätet an, während bereits auf
+      `baseline_001_run2` gewartet wurde — wurde korrekt seinem eigenen (bereits
+      abgeschlossenen) Ordner zugeordnet, nicht verworfen, nicht fälschlich
+      `baseline_001_run2` zugeschrieben. Das ist exakt der Fehlermodus, den der Fix
+      beheben sollte — hier live unter echten Timing-Bedingungen bestätigt.
 
-### 7.3 Rover-Lab (neu, nie deployt)
+### 7.3 Rover-Lab (neu, nie deployt) — ✅ nach Bugfix (10.8) erfolgreich
 
-- [ ] `scenario_rover-lab_knn` und `scenario_rover-lab_nearest_centroid` haben je einen
-      vollständigen `exp_*`-Ordner mit `experiment_metadata.json` + `merged_analysis*.csv`.
-- [ ] `classifier_type` in `experiment_metadata.json` stimmt mit dem erwarteten Typ überein
-      (`LightweightKNN` bzw. `NearestCentroidClassifier`).
-- [ ] `inference_resolution` = `[160, 160]` wie in `config.json` erwartet.
-- [ ] PCA-Feature-Processor wurde für `scenario_rover-lab_nearest_centroid` korrekt aus
-      `feature_processor.npz` abgeleitet/gecacht (`feature_processor_pca95var.npz` im
-      `model/`-Ordner vorhanden, `pca_explained_variance_%` in der Metadatei plausibel
-      nahe 95).
-- [ ] `merged_analysis_*.csv` enthält nur die zwei Klassen `negative`/`obstacle` in
-      `ground_truth`/`prediction`.
+- [x] Beide Rover-Lab-Zellen (`scenario_rover-lab_knn`, `_nearest_centroid`) haben
+      vollständige `exp_*`-Ordner mit `experiment_metadata.json` + `merged_analysis*.csv`.
+- [x] `classifier_type` korrekt (`LightweightKNN` / `NearestCentroidClassifier`).
+- [x] `inference_resolution` = `[160, 160]`.
+- [x] PCA-Feature-Processor für `_nearest_centroid` korrekt erzeugt/gecacht.
+- [x] `confusion_matrix_per_class.csv` enthält für beide Rover-Lab-Zellen genau 2 Zeilen
+      (Klassen `negative`/`obstacle`, `support=5` je Klasse, passend zu
+      `test_images_per_class=5`).
+- ⚠️ **War vor dem Fix in 10.8 komplett blockiert** (Absturz vor jedem Deployment) — ohne
+      diesen Testlauf wäre der Copy-Paste-Bug erst beim produktiven Sweep aufgefallen.
 
-### 7.4 Chunked Transfer (Imagenette)
+### 7.4 Chunked Transfer (Imagenette) — ⚠️ **nicht getestet, nicht in diesem Testlauf abgedeckt**
 
-- [ ] Pi-Log zeigt `Received deployment chunk N/M` mehrfach für die Imagenette-Zelle.
-- [ ] Trotzdem vollständiges, unbeschädigtes Deployment (Pi konnte `main.py` importieren
-      und ausführen, kein `ModuleNotFoundError`).
+- [ ] 0 Treffer für "chunk"/"Received deployment chunk" im gesamten Log — die Chunking-Logik
+      wurde in diesem Testlauf **nicht ausgelöst**. Grund: Die Testzelle nutzte bewusst ein
+      kleines `samples_per_class=2` (für einen schnellen Validierungslauf), wodurch die
+      Deployment-ZIP klein genug blieb, um unter dem NATS-`max_payload`-Limit (25 MB) zu
+      bleiben. Chunking greift laut README erst bei hohem `samples_per_class` in Kombination
+      mit Imagenette. **Das ist eine echte Lücke dieses Testlaufs** — die Chunk-Reassemblierung
+      auf dem Pi (`deployment-receiver.py:227-279`) bleibt bis zum produktiven Sweep (oder
+      einem gezielten Nachtest mit z. B. `samples_per_class=100`) ungetestet.
 
-### 7.5 Formate / erwartete Dateien je `exp_*`-Ordner
+### 7.5 Formate / erwartete Dateien je `exp_*`-Ordner — ✅ vollständig
 
-Soll-Zustand laut `README.md` § "Result Layout":
-```
-merged_analysis_*.csv   resource_usage_*.csv   performance_*.json
-drift_detection_*.csv   power_exp_*.csv        experiment_metadata.json
-```
-- [ ] Für jede der 6 Zellen: alle sechs Dateitypen vorhanden (fehlt `drift_detection_*.csv`,
-      ist das ok — alle Testszenarien haben `"drift_detectors": []`, siehe `config.json`).
-- [ ] `experiment_metadata.json` enthält alle in Abschnitt 1 genannten Schlüssel,
-      insbesondere `clock_offset` und `power.inference_window`.
-- [ ] `results_validation/benchmark_summary.json` und je
-      `results_validation/<scenario>/benchmark_summary.json` wurden geschrieben und
-      `"ok"` zählt alle 6 Zellen (kein `"timeout"`).
+- [x] Alle erwarteten Dateitypen für jede der 6 Zellen vorhanden (kein `drift_detection_*.csv`
+      — korrekt, da `"drift_detectors": []` in allen Test-Configs).
+- [x] `experiment_metadata.json` enthält alle erwarteten Schlüssel inkl. `clock_offset` und
+      `power.inference_window`.
+- [x] `benchmark_summary.json` (root + je Szenario) geschrieben, alle 6 Zellen `"ok"`, kein
+      `"timeout"` (0 Treffer für "TIMEOUT" im gesamten Log).
 
-### 7.6 Analyse-Ausgaben
+### 7.6 Analyse-Ausgaben — ✅, mit einem neuen Befund
 
-- [ ] `results_validation/analysis/experiment_summary.csv` enthält 6 Zeilen (eine je Zelle).
-- [ ] `results_validation/analysis/confusion_matrix_per_class.csv` enthält Zeilen für
-      CIFAR-10 (10 Klassen), Imagenette (10 Klassen) und Rover-Lab (2 Klassen).
-- [ ] `power_coverage_audit.csv` (`verify_power_coverage.py`) zeigt für alle 6 Läufe
-      Punkte 1-4 (Ränder, kausale Einbettung, Lückenlosigkeit, Zuordnung) als PASS.
+- [x] `experiment_summary.csv`: 6 Zeilen, eine je Zelle.
+- [x] `confusion_matrix_per_class.csv`: 44 Zeilen (10+10+10+10+2+2 Klassen über die 6 Zellen).
+- ⚠️ `power_coverage_audit.csv`: **0 PASS, 42 WARN, 0 FAIL** (42 = 6 Experimente + 36
+      Baseline-Läufe). Für die 6 echten Experimente sind die WARNs die erwarteten (Punkte 5
+      Kreuzkorrelation-Rauschen + Punkt 6 Fenster-Sensitivität, laut Doku kein Messfehler —
+      Sensitivität hier ungewöhnlich hoch, 10-84 %, weil dieser Testlauf bewusst nur
+      `test_images_per_class=5` nutzt und damit extrem kurze Inferenzfenster erzeugt, nicht
+      repräsentativ für den produktiven Sweep mit 20/Klasse). **Neuer, echter Befund:** Für
+      **alle 36 Baseline-Läufe** meldet der Audit
+      `no started_at/result_received_at in metadata -> containment check skipped` — die
+      kausale Einbettungsprüfung (Punkt 2, die "tragende Aussage" des ganzen Dokuments) läuft
+      für Baseline-Blöcke gar nicht, weil `run_baseline_block()` diese beiden Zeitstempel
+      nicht in `baseline_summary.json` schreibt (im Gegensatz zu `experiment_metadata.json`,
+      wo sie vorhanden sind). Das bestätigt empirisch eine Lücke, die
+      `MESSMETHODIK_ZEITSYNCHRONISATION.md` Abschnitt 6 bereits theoretisch benannt hatte
+      ("Ließe sich mit geringem Aufwand in `verify_power_coverage.py` ergänzen"). Für die
+      neue Session: `started_at`/`result_received_at` pro Baseline-Run in
+      `run_baseline_block()` mitschreiben, damit der Audit auch Baseline-Läufe vollständig
+      prüfen kann.
 
 ---
 
@@ -576,3 +593,135 @@ Sobald Abschnitt 7 abgehakt und plausibel ist:
 - Falls Rover-Lab-Läufe scheitern: zuerst `test_data_dirs`/Dataset-Export prüfen (Risiko
   #2), erst danach den Szenario-Code selbst verdächtigen — die Konfiguration ist neuer
   als der zugrunde liegende Harness-Code.
+
+---
+
+## 10. Während des Testlaufs entdeckte Befunde (live protokolliert, 2026-07-21)
+
+Diese sind tatsächlich beim echten Deployment auf Hans aufgetreten bzw. beim Sichten der
+dabei erzeugten Dateien entdeckt worden — nicht aus reinem Code-Review, sondern verifiziert.
+
+### 10.1 `k`-Mismatch bei allen drei KNN-Szenarien — Config lügt
+
+`config.json` sagt `tinylcm.adaptive_classifier.k: 3`. Tatsächlich zur Laufzeit aktiv ist
+**immer `k=5`**, für `scenario_cifar10_knn`, `scenario_imagenette_knn` und
+`scenario_rover-lab_knn` gleichermaßen (alle drei geprüft, identisches Muster). Ablauf,
+Zeile für Zeile verifiziert:
+
+1. `main.py:900-901` konstruiert `LightweightKNN(k=knn_config['k'], ...)` — hier zählt kurz
+   die Config (`k=3`).
+2. `main.py:908-915` lädt direkt danach `initial_state/knn_initial_state_objects.json` und
+   ruft `classifier.set_state(loaded_state_data['classifier'])`.
+3. [`tinylcm_python/knn.py:275`](../../server/Retrainer/on-device-drift-detection-main/tinylcm_python/knn.py)
+   `self.k = state.get("k", self.k)` — überschreibt den Konstruktor-Wert mit dem `k` aus
+   der geladenen State-Datei.
+4. Die State-Datei enthält `k=5`, weil `create_initial_state.py:69` eine **hartcodierte
+   Konstante** `KNN_K = 5` definiert, komplett unabhängig von `config.json`, und diese beim
+   Bauen des Initial State verwendet (Zeile 507).
+
+**Praktische Konsequenz:** `config.json`s `k` ist für den Klassifikator reine Deko — sie
+wird nie wirksam, solange `create_initial_state.py` nicht mit demselben `k` neu ausgeführt
+wird. Das betraf schon die komplette historische 1440-Läufe-Kampagne (immer k=5, nicht
+k=3 wie die Config suggeriert) — konsistent falsch, aber falsch dokumentiert. Für das Paper
+relevant, falls irgendwo "k=3" als Methodik-Detail auftaucht.
+
+**Handlungsbedarf für die neue Session:** Entweder `KNN_K` in allen drei
+`create_initial_state.py`-Kopien auf den in `config.json` dokumentierten Wert angleichen
+(und Initial States neu erzeugen), oder `config.json`s `k` auf 5 korrigieren, damit Config
+und Realität wieder übereinstimmen. Nicht einfach den einen oder anderen Wert ändern, ohne
+sich zu entscheiden, welcher der beabsichtigte ist. Sicherer: config direkt einlesen.
+
+### 10.2 Fehlendes automatisches Aufräumen alter Deployments auf dem Pi
+
+`DeploymentManager` in `client/deployment-receiver.py` trackt nur das *aktuell laufende*
+Deployment im Prozessspeicher (`self.current_path`) und löscht beim nächsten Deploy nur
+genau dieses eine. Über Service-Neustarts hinweg (z. B. nach einem NATS-Ausfall, siehe
+10.3) beginnt das Tracking bei `None` neu — alte `deployment_*`-Ordner bleiben für immer
+liegen. Bei diesem Testlauf hatten sich so **über 2600 alte Ordner** aus der historischen
+Kampagne angesammelt; das Aufräumen allein hat auf der langsamen Pi-Zero-2W-SD-Karte über
+6 Minuten gedauert (`rm -rf`, Disk-I/O-gebunden). **Vorschlag (vom Nutzer)**: nach jedem
+erfolgreich abgeschlossenen Deployment automatisch alte, nicht mehr benötigte
+`deployment_*`-Ordner löschen, statt das nur einmal pro Prozesslebenszeit zu tun. Beim
+`--measure-baseline`-Aufräumen (Prompt-Datei) mit erledigen oder als eigenen kleinen Fix.
+
+### 10.3 JetStream-Push-Subscription übersteht keinen Broker-Neustart zuverlässig
+
+Nach einem Docker-Neustart des NATS-Containers (`docker start nats-jetstream`, ohne den
+Pi-Service neu zu starten) blieb eine an den Pi gerichtete Nachricht als `num_pending: 1`
+im MODELS-Stream hängen, ohne je zugestellt zu werden (`delivered.consumer_seq` blieb bei
+`0`), obwohl der Pi-Client laut eigenem Log wieder verbunden war. Erst ein Neustart von
+`deployment-receiver.service` auf dem Pi (frische JetStream-Subscription) hat die Nachricht
+sofort zugestellt. **Für den produktiven Sweep:** Nach jedem NATS-Neustart (Docker-Neustart,
+Absturz, Host-Neustart) den `deployment-receiver`-Service auf dem Pi ebenfalls neu starten
+— sich nicht auf automatisches Reconnect/Resubscribe verlassen.
+
+### 10.4 Crash bei relativem `--results-dir`-Pfad
+
+`benchmark_pipeline.py:1724` (`_run_scenario`) ruft
+`result_csv.parent.relative_to(PROJECT_ROOT)` auf, um eine Fortschrittszeile zu drucken.
+`PROJECT_ROOT` ist immer absolut (Python ≥3.9 garantiert `__file__` als absoluten Pfad),
+aber `args.results_dir` (aus `--results-dir`, `type=Path`) bleibt **relativ**, wenn es als
+relativer Pfad übergeben wird — genau wie es die `README.md` selbst vorschlägt
+(`--results-dir results_run2`). `Path.relative_to()` akzeptiert keine Mischung aus
+relativem und absolutem Pfad und wirft `ValueError`, **nachdem das Experiment bereits
+erfolgreich abgeschlossen** und das Ergebnis gespeichert wurde — die Exception propagiert
+unbehandelt durch `run_pipeline()` und bricht die **gesamte restliche Sweep-Kampagne** ab.
+Reproduziert in diesem Testlauf beim ersten erfolgreichen Experiment.
+**Workaround (verwendet):** `--results-dir` immer als absoluten Pfad übergeben.
+**Echter Fix (für neue Session):** `args.results_dir = args.results_dir.resolve()` direkt
+nach dem Parsen in `main()`, oder `os.path.relpath()` statt `Path.relative_to()` an der
+betroffenen Stelle verwenden.
+
+### 10.5 Zu entfernen: Konsolen-Ausgabe der Referenzstatistiken bei Initial-State-Erstellung
+
+In jeder Kopie von `create_initial_state.py` (eine pro Szenario) druckt der Block ab
+Zeile 628 (`scenario_cifar10_knn`-Beispiel; identisch dupliziert in den anderen Szenarien)
+nach dem Erzeugen des Initial State unaufgefordert die vollständigen Referenzstatistiken
+und eine "empfohlene KNNDistanceMonitor-Konfiguration" auf die Konsole (Zeilen 629, 649,
+657 ff.). Das ist reine Nutzer-Anfrage: **entfernen** — keine funktionale Bedeutung, nur
+Log-Rauschen, das bei jedem Sweep-Schritt erneut erscheint.
+
+### 10.6 `initial_state/`-Dateien waren trotz `.gitignore`-Eintrag weiter getrackt
+
+`.gitignore` wurde um `.../initial_state/`-Einträge für alle 9 Szenarien ergänzt, blieb
+aber wirkungslos für bereits getrackte Dateien (Git ignoriert `.gitignore` für Pfade, die
+schon im Index stehen). Fix in dieser Session angewendet: `git rm -r --cached` für die 6
+Szenarien, die tatsächlich getrackte `initial_state/`-Dateien hatten (die 3
+Rover-Lab-Szenarien waren nie getrackt). **Nur gestaged, nicht committed** — Dateien
+bleiben unangetastet auf der Platte, `git status` zeigt die Entfernung aus dem Index als
+bereit zum Commit.
+
+### 10.7 `scenario_cifar10_knn_benchmark` existiert nicht mehr
+
+`README.md` und die ursprüngliche Fassung dieses Testplans referenzierten
+`scenario_cifar10_knn_benchmark` — der Ordner heißt inzwischen `scenario_cifar10_knn`
+(passend zur produktiven `benchmark_config.json`). Nur `raw_data/` (reiner
+Packager-Cache, wird beim nächsten Deploy überschrieben) hat noch den alten Namen. Die
+`README.md` ist an dieser Stelle nicht mehr aktuell.
+
+### 10.8 Rover-Lab: hartcodierter 32×32-Dummy-Input crasht `create_initial_state.py` — **live gefixt**
+
+Alle drei Rover-Lab-Szenarien (`scenario_rover-lab_knn`, `_nearest_centroid`, `_kmeans`)
+crashten beim allerersten Aufruf von `create_initial_state.py` (ausgelöst durch den
+Baseline-Block, bevor überhaupt ein echtes Experiment lief) mit:
+
+```
+ValueError: Cannot set tensor: Dimension mismatch. Got 32 but expected 160 for dimension 1 of input 0.
+```
+
+Ursache: In allen drei Kopien von `create_initial_state.py` (Zeile 368 bzw. 379) stand
+`dummy_rgb = np.zeros((32, 32, 3), dtype=np.uint8)` — hartcodiert von der CIFAR-10-Vorlage
+kopiert (die Konsolenausgabe druckte sogar noch "Creating initial KNN state for CIFAR-10"
+für den Rover-Lab-Lauf — eindeutiges Copy-Paste-Indiz). Das Rover-Lab-Modell erwartet aber
+160×160 (`input_details['shape']`). Dieser Bug hätte **jeden** Rover-Lab-Lauf zum Absturz
+gebracht — bestätigt, dass die Szenarien wirklich noch nie erfolgreich deployt wurden.
+
+**Fix (angewendet, alle drei Dateien):**
+```python
+_in_h, _in_w = int(input_details['shape'][1]), int(input_details['shape'][2])
+dummy_rgb = np.zeros((_in_h, _in_w, 3), dtype=np.uint8)
+```
+Liest die Auflösung jetzt dynamisch aus dem geladenen TFLite-Modell aus, statt sie
+hartzucodieren — funktioniert damit unabhängig von der tatsächlichen Szenario-Auflösung.
+Syntax aller drei Dateien geprüft (`ast.parse`); funktionale Verifikation durch den
+Testlauf selbst (siehe Abschnitt 7.3).

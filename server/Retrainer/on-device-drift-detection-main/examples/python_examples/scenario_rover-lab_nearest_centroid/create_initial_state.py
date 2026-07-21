@@ -376,7 +376,8 @@ def build_initial_state(samples_per_class=None, seed=42, no_pca=False,
         print(f"Input Quantisierung: scale={scale}, zero_point={zero_point}")
 
     # Erstelle einen Dummy-Input und verarbeite ihn konsistent: [-1,1] + Quantisierung
-    dummy_rgb = np.zeros((32, 32, 3), dtype=np.uint8)
+    _in_h, _in_w = int(input_details['shape'][1]), int(input_details['shape'][2])
+    dummy_rgb = np.zeros((_in_h, _in_w, 3), dtype=np.uint8)
     dummy = dummy_rgb.astype(np.float32)
     dummy = dummy / 255.0
     if input_details['dtype'] in (np.int8, np.uint8):
