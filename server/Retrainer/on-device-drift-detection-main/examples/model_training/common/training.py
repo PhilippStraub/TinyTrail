@@ -18,6 +18,14 @@ Additional CIFAR10 / Low-res MobileNet utilities:
 - train_and_export_cifar10_lowres:
     Training from scratch + INT8 TFLite export for the Low-res model.
 
+Additional MNIST / LeNet-5-style utilities:
+- build_datasets_mnist:
+    MNIST dataset pipeline with /255.0 normalization, 28x28 by default.
+- create_mnist_lenet5_model:
+    LeNet-5-style model (LeCun et al. 1998) optimized for 28x28 inputs.
+- train_and_export_mnist:
+    Training from scratch + INT8 TFLite export for the LeNet-5-style model.
+
 Important:
 The old MobileNetV2 functions are intentionally kept unchanged so existing
 scenarios can still use them.
@@ -51,6 +59,16 @@ CIFAR10_IMG_SIZE = 32
 CIFAR10_BATCH_SIZE = 64
 CIFAR10_EPOCHS = 200
 CIFAR10_LR = 0.1
+
+
+# =============================================================================
+# MNIST / LeNet-5-style defaults
+# =============================================================================
+
+MNIST_IMG_SIZE = 28
+MNIST_BATCH_SIZE = 128
+MNIST_EPOCHS = 15
+MNIST_LR = 0.001
 
 
 # =============================================================================
@@ -1057,6 +1075,373 @@ def train_and_export_cifar10_lowres(
     tflite_path.write_bytes(tflite_model)
 
     print(f"Saved CIFAR10 Low-res TFLite feature model: {tflite_path}")
+
+    labels_path = model_dir / "labels_object.txt"
+    labels_content = "\n".join(
+        [f"{i} {name}" for i, name in enumerate(class_names)]
+    )
+    labels_path.write_text(labels_content)
+
+    print(f"Saved labels: {labels_path}")
+
+    if mirror_dirs:
+        for md in mirror_dirs:
+            md = Path(md)
+            md.mkdir(parents=True, exist_ok=True)
+
+            shutil.copy2(tflite_path, md / tflite_path.name)
+            shutil.copy2(labels_path, md / labels_path.name)
+
+            print(f"Mirrored artifacts to: {md}")
+
+    return str(tflite_path), list(class_names)
+
+
+# =============================================================================
+# MNIST / LeNet-5-style dataset builder
+# =============================================================================
+
+def build_datasets_mnist(
+    data_dir: Path | str,
+    *,
+    include_classes: Optional[Sequence[str]] = None,
+    exclude_classes: Optional[Sequence[str]] = None,
+    batch_size: int = MNIST_BATCH_SIZE,
+    validation_split: float = 0.2,
+    seed: int = 42,
+    img_size: int = MNIST_IMG_SIZE,
+) -> Tuple[tf.data.Dataset, tf.data.Dataset, List[str]]:
+    """
+    Dataset pipeline for the MNIST LeNet-5-style backbone.
+
+    Images are exported as single-channel grayscale PNGs (see
+    examples/dataset_mnist/export_mnist.py), but decoded here with channels=3:
+    every other consumer of these images (create_initial_state.py's cv2.imread,
+    main.py's runtime FolderImageSource) also always produces 3 channels, since
+    cv2.imread replicates grayscale into 3 identical channels by default. Decoding
+    as channels=3 here keeps training consistent with that instead of introducing a
+    separate single-channel code path the shared runtime does not support.
+
+    Pixel values are normalized with /255.0, matching the Raspberry Pi client:
+        image = image.astype(np.float32) / 255.0
+    """
+    data_dir = Path(data_dir)
+
+    all_classes = sorted([p.name for p in data_dir.iterdir() if p.is_dir()])
+
+    if include_classes is not None:
+        include_classes = list(include_classes)
+    else:
+        exclude_set = set(exclude_classes or [])
+        include_classes = [c for c in all_classes if c not in exclude_set]
+
+    if not include_classes:
+        raise RuntimeError("No classes to include for training.")
+
+    for c in all_classes:
+        if c in include_classes:
+            print(f"  Including class: {c}")
+        else:
+            print(f"  EXCLUDING class: {c} (filtered)")
+
+    rng = random.Random(seed)
+
+    train_files: list[str] = []
+    train_labels: list[int] = []
+    val_files: list[str] = []
+    val_labels: list[int] = []
+
+    patterns = ("*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp")
+
+    for class_idx, class_name in enumerate(include_classes):
+        class_dir = data_dir / class_name
+        files: list[str] = []
+
+        for pat in patterns:
+            files.extend(sorted(str(p) for p in class_dir.glob(pat)))
+
+        rng.shuffle(files)
+        n = len(files)
+
+        if n == 0:
+            print(f"  Warning: no images found in {class_dir}")
+            continue
+
+        split_idx = int(round(n * (1.0 - validation_split)))
+
+        train_subset = files[:split_idx]
+        val_subset = files[split_idx:]
+
+        train_files.extend(train_subset)
+        train_labels.extend([class_idx] * len(train_subset))
+
+        val_files.extend(val_subset)
+        val_labels.extend([class_idx] * len(val_subset))
+
+    if not train_files:
+        raise RuntimeError(f"No training images found in {data_dir}")
+
+    if not val_files:
+        raise RuntimeError(
+            f"No validation images found in {data_dir}. "
+            "Check validation_split or dataset size."
+        )
+
+    num_classes = len(include_classes)
+
+    def decode_and_prepare(path: tf.Tensor, label: tf.Tensor):
+        image = tf.io.read_file(path)
+        image = tf.io.decode_image(
+            image,
+            channels=3,
+            expand_animations=False,
+        )
+
+        image = tf.image.resize(image, [img_size, img_size])
+        image = tf.cast(image, tf.float32)
+
+        # LeNet-5-style model normalization:
+        # 0..255 -> 0.0..1.0
+        image = image / 255.0
+
+        label_oh = tf.one_hot(label, depth=num_classes)
+
+        return image, label_oh
+
+    train_ds = tf.data.Dataset.from_tensor_slices((train_files, train_labels))
+    val_ds = tf.data.Dataset.from_tensor_slices((val_files, val_labels))
+
+    train_ds = (
+        train_ds
+        .shuffle(
+            buffer_size=max(1024, len(train_files)),
+            seed=seed,
+            reshuffle_each_iteration=True,
+        )
+        .map(decode_and_prepare, num_parallel_calls=tf.data.AUTOTUNE)
+    )
+
+    val_ds = val_ds.map(
+        decode_and_prepare,
+        num_parallel_calls=tf.data.AUTOTUNE,
+    )
+
+    # Mild augmentation only. No horizontal/vertical flip: flipping would change a
+    # digit's meaning (e.g. some digits become confusable with others), unlike the
+    # CIFAR-10 natural-image augmentation.
+    augmentation = tf.keras.Sequential(
+        [
+            tf.keras.layers.RandomTranslation(0.05, 0.05),
+            tf.keras.layers.RandomZoom(0.05),
+        ],
+        name="mnist_lenet5_augmentation",
+    )
+
+    train_ds = train_ds.map(
+        lambda x, y: (augmentation(x, training=True), y),
+        num_parallel_calls=tf.data.AUTOTUNE,
+    )
+
+    train_ds = train_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+    val_ds = val_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+    return train_ds, val_ds, list(include_classes)
+
+
+# =============================================================================
+# MNIST / LeNet-5-style model
+# =============================================================================
+
+def create_mnist_lenet5_model(
+    num_classes: int,
+    img_size: int = MNIST_IMG_SIZE,
+):
+    """
+    Create a LeNet-5-style model for MNIST-like 28x28 inputs.
+
+    Architecture follows LeCun, Bottou, Bengio & Haffner, "Gradient-Based Learning
+    Applied to Document Recognition", Proc. IEEE 86(11), 1998 (LeNet-5). The original
+    pads its 28x28 input to 32x32 and uses "valid" convolutions throughout; using
+    "same" padding on C1 with the 28x28 input directly produces the identical spatial
+    trajectory (28x28x6 -> 14x14x6 -> 10x10x16 -> 5x5x16) without an explicit padding
+    step. S2/S4 use **average** pooling (the original's subsampling layers), not max
+    pooling.
+
+    Two deliberate adaptations to this framework's conventions:
+    - BatchNorm + ReLU6 after each conv instead of the original tanh/sigmoid
+      activations, matching the Low-res MobileNet's INT8-export-friendly activation
+      choice above.
+    - C5 is implemented as Flatten + Dense(120) rather than a 5x5 "fully-connected
+      convolution" — mathematically equivalent given the 5x5x16 input, since a Conv2D
+      whose kernel exactly matches the input's spatial size collapses to a dense
+      layer over the flattened receptive field.
+
+    See server/Retrainer/README.md -> "Feature Extractor Architectures Per Dataset"
+    for the citation and rationale.
+
+    Input is 3-channel (see build_datasets_mnist for why), even though the source
+    images are grayscale.
+
+        Input: 28x28x3
+
+        C1 - Conv 5x5, 6 filters, stride 1, "same":
+            -> 28x28x6
+        S2 - Average pooling 2x2:
+            -> 14x14x6
+
+        C3 - Conv 5x5, 16 filters, stride 1, "valid":
+            -> 10x10x16
+        S4 - Average pooling 2x2:
+            -> 5x5x16
+
+        Flatten -> C5 - Dense 120:
+            feature_vector, exported (120-dim, matches the original LeNet-5 C5 layer)
+
+        F6 - Dense 84 + predictions - Dense(num_classes, softmax):
+            training-only classification head, not exported.
+    """
+    inputs = tf.keras.Input(shape=(img_size, img_size, 3), name="input_image")
+
+    x = tf.keras.layers.Conv2D(
+        6, 5, strides=1, padding="same", use_bias=False, name="c1_conv"
+    )(inputs)
+    x = tf.keras.layers.BatchNormalization(name="c1_bn")(x)
+    x = _relu6(x, name="c1_relu6")
+    x = tf.keras.layers.AveragePooling2D(2, name="s2_pool")(x)
+
+    x = tf.keras.layers.Conv2D(
+        16, 5, strides=1, padding="valid", use_bias=False, name="c3_conv"
+    )(x)
+    x = tf.keras.layers.BatchNormalization(name="c3_bn")(x)
+    x = _relu6(x, name="c3_relu6")
+    x = tf.keras.layers.AveragePooling2D(2, name="s4_pool")(x)
+
+    x = tf.keras.layers.Flatten(name="flatten")(x)
+
+    features = tf.keras.layers.Dense(120, activation="relu", name="c5_dense_120")(x)
+
+    x = tf.keras.layers.Dense(84, activation="relu", name="f6_dense_84")(features)
+    x = tf.keras.layers.Dropout(0.2, name="classifier_dropout")(x)
+
+    outputs = tf.keras.layers.Dense(
+        num_classes,
+        activation="softmax",
+        name="predictions",
+    )(x)
+
+    model = tf.keras.Model(inputs=inputs, outputs=outputs, name="mnist_lenet5")
+    feature_model = tf.keras.Model(
+        inputs=inputs, outputs=features, name="mnist_lenet5_features"
+    )
+
+    # No pretrained base model exists for this custom model.
+    base_model = None
+
+    return model, feature_model, base_model
+
+
+# =============================================================================
+# MNIST / LeNet-5-style training/export
+# =============================================================================
+
+def train_and_export_mnist(
+    train_ds: tf.data.Dataset,
+    val_ds: tf.data.Dataset,
+    class_names: Sequence[str],
+    *,
+    model_dir: Path | str,
+    mirror_dirs: Optional[Iterable[Path | str]] = None,
+    epochs: int = MNIST_EPOCHS,
+    learning_rate: float = MNIST_LR,
+    img_size: int = MNIST_IMG_SIZE,
+    early_stopping_patience: int = 3,
+) -> Tuple[str, List[str]]:
+    """
+    Train the LeNet-5-style MNIST model from scratch and export INT8 TFLite.
+
+    Simpler optimizer setup than the CIFAR-10 Low-res MobileNet (Adam with a fixed
+    learning rate, no cosine schedule/momentum) because this much smaller model on
+    MNIST converges quickly and reliably without the additional tuning the deeper
+    CIFAR-10 backbone needed.
+
+    MNIST saturates this model very quickly: val_accuracy plateaus within the first
+    3-4 epochs and val_loss stops improving shortly after, while train accuracy keeps
+    climbing - i.e. every epoch beyond that point is pure overfitting, not learning.
+    EarlyStopping(monitor="val_loss", restore_best_weights=True) both stops training
+    once val_loss stops improving for `early_stopping_patience` epochs, and - just as
+    important - restores the model's weights to the best (lowest val_loss) epoch
+    before export. Without restore_best_weights, the exported model corresponds to
+    whichever epoch training happened to end on, which can be worse than an earlier
+    epoch (val_loss is noisy near the plateau, not monotonically improving). `epochs`
+    remains an upper bound; in practice training usually stops well before it.
+    """
+    model_dir = Path(model_dir)
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    num_classes = len(class_names)
+
+    model, feature_model, _ = create_mnist_lenet5_model(
+        num_classes=num_classes,
+        img_size=img_size,
+    )
+
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate),
+        loss="categorical_crossentropy",
+        metrics=["accuracy"],
+    )
+
+    print(f"Training MNIST LeNet-5-style model with {num_classes} classes:")
+    print(list(class_names))
+    print(f"Image size: {img_size}x{img_size}")
+    print(f"Epochs (upper bound): {epochs}")
+    print(f"Learning rate: {learning_rate}")
+    print(f"Early stopping patience (val_loss): {early_stopping_patience}")
+
+    model.summary()
+
+    early_stopping = tf.keras.callbacks.EarlyStopping(
+        monitor="val_loss",
+        patience=early_stopping_patience,
+        restore_best_weights=True,
+    )
+
+    model.fit(
+        train_ds,
+        validation_data=val_ds,
+        epochs=epochs,
+        callbacks=[early_stopping],
+    )
+
+    def representative_dataset():
+        """
+        Representative dataset for INT8 quantization.
+
+        The images here are already normalized to [0, 1], because they come from
+        build_datasets_mnist(...). This must match the model input.
+        """
+        for images, _ in train_ds.take(100):
+            for image in images:
+                yield [tf.expand_dims(image, 0)]
+
+    converter = tf.lite.TFLiteConverter.from_keras_model(feature_model)
+
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.representative_dataset = representative_dataset
+
+    converter.target_spec.supported_ops = [
+        tf.lite.OpsSet.TFLITE_BUILTINS_INT8,
+    ]
+
+    converter.inference_input_type = tf.int8
+    converter.inference_output_type = tf.int8
+
+    tflite_model = converter.convert()
+
+    tflite_path = model_dir / "model_object.tflite"
+    tflite_path.write_bytes(tflite_model)
+
+    print(f"Saved MNIST LeNet-5-style TFLite feature model: {tflite_path}")
 
     labels_path = model_dir / "labels_object.txt"
     labels_content = "\n".join(
