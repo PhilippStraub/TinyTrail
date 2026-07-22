@@ -370,6 +370,61 @@ Below we document the important fields, what they do, and what happens if you ch
 
 ---
 
+## Feature Extractor Architectures Per Dataset
+
+Every classifier scenario (KNN / KMeans / Nearest Centroid) is built on top of a frozen,
+quantized TensorFlow Lite **feature extractor** (the backbone), trained once per dataset
+and then shared unchanged by all three classifier variants of that dataset — see
+`examples/model_training/<scenario>/train_core.py` and the shared
+`examples/model_training/common/training.py`. The distance-based classifier never sees
+raw pixels, only the backbone's output embedding.
+
+To keep this reproducible and citable for the accompanying paper
+(`AML-submission/paper/knn-sweet-spot.tex`), each dataset's backbone is deliberately
+picked from an **established, published architecture** that matches that dataset's
+resolution and complexity, instead of reusing one architecture for every dataset:
+
+| Dataset    | Backbone           | Reference                                                                                                                                              | Input   | Training regime                                | Output dim | Training script |
+|------------|---------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|---------|--------------------------------------------------|------------|------------------|
+| Imagenette | MobileNetV2         | Sandler et al., *MobileNetV2: Inverted Residuals and Linear Bottlenecks*, CVPR 2018 (`sandler2018mobilenetv2`)                                            | 224×224 | ImageNet-pretrained, fine-tuned (10 + 5 epochs)  | 1280       | `examples/model_training/scenario_imagenette/train_core.py` (`common.training.build_datasets` / `train_and_export`) |
+| CIFAR-10   | Low-res MobileNet   | Yuan et al., *Low-res MobileNet: An efficient lightweight network for low-resolution image classification in resource-constrained scenarios*, Multimedia Tools and Applications 2022 (`yuan2022lowres`) | 32×32   | From scratch (20 epochs in the paper run)        | 160        | `examples/model_training/scenario_cifar10/train_core.py` (`common.training.build_datasets_cifar10_lowres` / `train_and_export_cifar10_lowres`) |
+| MNIST      | LeNet-5             | LeCun, Bottou, Bengio & Haffner, *Gradient-Based Learning Applied to Document Recognition*, Proc. IEEE 86(11), 1998 (`lecun1998gradient`)                 | 28×28   | From scratch                                     | 120        | `examples/model_training/scenario_mnist/train_core.py` (planned — mirrors the CIFAR-10 pattern) |
+
+The Imagenette and CIFAR-10 references above already exist in the paper's own
+`AML-submission/paper/references.bib`. That file belongs to the paper project, not to
+this codebase — when a new dataset/backbone is introduced here, add the matching
+citation there yourself (same key as used in this table, e.g. `lecun1998gradient` for
+MNIST) so the paper and the code stay in sync.
+
+### Choosing a backbone for a new dataset
+
+When adding a new use case, do not default to reusing an existing backbone unmodified.
+Instead:
+
+1. **Match the resolution/complexity regime first.** Full-resolution natural images
+   (~224×224, ImageNet-style) → a pretrained, fine-tuned backbone like MobileNetV2 is a
+   reasonable default. Small, low-resolution natural images (~32×32, CIFAR-like) → a
+   purpose-built low-resolution network trained from scratch, such as Yuan et al.'s
+   Low-res MobileNet. Small, simple, low-channel images (~28×28 grayscale, digit/character
+   data) → a classic compact architecture such as LeNet-5.
+2. **Look for an existing, published architecture** that already targets that regime
+   before designing one from scratch. This keeps the backbone choice citable in the
+   paper and gives a known accuracy/size ballpark to sanity-check your own training run
+   against — do this research step yourself for your dataset the same way it was done
+   for Imagenette/CIFAR-10/MNIST above.
+3. **Implement it as a new function triple** — `build_datasets_<name>()` /
+   `create_<name>_model()` / `train_and_export_<name>()` — in
+   `examples/model_training/common/training.py`, using the existing CIFAR-10 /
+   Imagenette functions as templates, plus a thin `train_core.py` CLI wrapper under
+   `examples/model_training/scenario_<name>/` (see [Scenarios](#scenarios) below for the
+   expected folder shape).
+4. **Export the backbone's penultimate embedding layer** (not the softmax head) as INT8
+   TFLite. The softmax classification head is training-only in every existing scenario —
+   the deployed artifact is the feature extractor, and the distance-based classifier
+   (KNN / KMeans / Nearest Centroid) replaces the softmax head at inference time.
+5. **Add the corresponding citation** to `AML-submission/paper/references.bib` and to the
+   table above.
+
 ## Scenarios
 
 ### Scenario 1 – Lego causes drift

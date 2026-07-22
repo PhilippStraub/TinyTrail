@@ -1,0 +1,74 @@
+{
+  "device": {
+    "name": "Raspberry Pi Zero 2W",
+    "description": "MNIST folder-based drift detection",
+    "log_level": "INFO",
+    "console_log_level": "ERROR"
+  },
+  "image_input": {
+  "input_dir": "./input_images",
+  "recursive": true,
+  "loop_forever": false,
+  "supported_extensions": [
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".webp"
+  ],
+  "sort_mode": "name",
+  "skip_non_image_files": true,
+  "ground_truth_from_parent_dir": true,
+  "shuffle_files": true,
+  "shuffle_seed": 42,
+  "inference_resolution": [
+    28,
+    28
+  ],
+  "delay_ms": 200
+},
+  "model": {
+    "model_path": "./model/model_object.tflite",
+    "labels_path": "./model/labels_object.txt",
+    "threshold": 0.75
+  },
+  "tinylcm": {
+    "feature_extractor": {
+      "type": "TFLiteFeatureExtractor",
+      "model_path": "./model/model_object.tflite",
+      "feature_layer_index": 0,
+      "normalize_features": false,
+      "lazy_loading": false
+    },
+    "feature_transformation": {
+      "type": "StandardScalerPCA",
+      "model_path": "./model/feature_processor.npz",
+      "format": "npz",
+      "enabled": true
+    },
+    "adaptive_classifier": {
+      "type": "LightweightKNN",
+      "k": 3,
+      "max_samples": 200,
+      "distance_metric": "euclidean",
+      "weight_by_distance": true,
+      "idw_power": 3.0,
+      "initial_state_path": "./initial_state/knn_initial_state_objects.json"
+    },
+    "drift_detectors": [],
+    "data_logger": {
+      "enabled": false,
+      "log_dir": "./logs",
+      "log_images": false,
+      "log_drift_events": false,
+      "verbose_frame_logging": false,
+      "frame_log_interval": 9999,
+      "max_log_size_mb": 100
+    }
+  },
+  "application": {
+    "display_frames": false,
+    "save_debug_frames": false,
+    "debug_output_dir": "./debug"
+  }
+}
