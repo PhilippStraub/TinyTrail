@@ -1,0 +1,78 @@
+{
+  "pca_enabled": false,
+  "pca_components": null,
+  "pca_target": null,
+  "pca_target_type": null,
+  "pca_label": "nopca",
+  "samples_per_class": 60,
+  "seed": 9876,
+  "experiment_id": "exp_200_nopca_spc60_s9876",
+  "scenario_name": "scenario_cifar10_knn",
+  "dataset_name": "cifar10",
+  "classifier_type": "LightweightKNN",
+  "config_source": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_cifar10_knn\\config.json",
+  "inference_resolution": [
+    32,
+    32
+  ],
+  "python_example_dir": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_cifar10_knn",
+  "raw_data_dir": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Deployment-Packager\\nats-model-service\\raw_data\\scenario_cifar10_knn",
+  "started_at": "2026-07-22T03:20:12.058717",
+  "result_received_at": "2026-07-22T03:21:18.077911",
+  "pca_explained_variance_%": null,
+  "power": {
+    "full_window": {
+      "energy_J": 47.2851,
+      "avg_power_W": 0.8507,
+      "duration_s": 55.586,
+      "samples": 416
+    },
+    "inference_window": {
+      "energy_J": 40.3225,
+      "avg_power_W": 0.8201,
+      "duration_s": 49.167,
+      "samples": 368,
+      "energy_per_image_J": 0.201613
+    }
+  },
+  "clock_offset": {
+    "offset_s": 0.0159304141998291,
+    "round_trip_s": 0.007677316665649414,
+    "offset_median_s": 0.05851602554321289,
+    "offset_std_s": 0.060225149123762874,
+    "n_pings": 7,
+    "n_valid": 2,
+    "measured_at": "2026-07-22T03:20:22.316587",
+    "samples": [
+      {
+        "error": "nats: timeout"
+      },
+      {
+        "error": "nats: timeout"
+      },
+      {
+        "error": "nats: timeout"
+      },
+      {
+        "error": "nats: timeout"
+      },
+      {
+        "error": "nats: timeout"
+      },
+      {
+        "t1": 1784683222.1232407,
+        "t3": 1784683222.3078678,
+        "pi_time": 1784683222.3166559,
+        "round_trip_s": 0.18462705612182617,
+        "offset_s": 0.10110163688659668
+      },
+      {
+        "t1": 1784683222.3083732,
+        "t3": 1784683222.3160505,
+        "pi_time": 1784683222.3281424,
+        "round_trip_s": 0.007677316665649414,
+        "offset_s": 0.0159304141998291
+      }
+    ]
+  }
+}

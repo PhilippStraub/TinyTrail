@@ -1,0 +1,98 @@
+{
+  "pca_enabled": false,
+  "pca_components": null,
+  "pca_target": null,
+  "pca_target_type": null,
+  "pca_label": "nopca",
+  "samples_per_class": 40,
+  "seed": 9876,
+  "experiment_id": "exp_180_nopca_spc40_s9876",
+  "scenario_name": "scenario_cifar10_knn",
+  "dataset_name": "cifar10",
+  "classifier_type": "LightweightKNN",
+  "config_source": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_cifar10_knn\\config.json",
+  "inference_resolution": [
+    32,
+    32
+  ],
+  "python_example_dir": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_cifar10_knn",
+  "raw_data_dir": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Deployment-Packager\\nats-model-service\\raw_data\\scenario_cifar10_knn",
+  "started_at": "2026-07-22T02:55:07.239785",
+  "result_received_at": "2026-07-22T02:56:03.962014",
+  "pca_explained_variance_%": null,
+  "power": {
+    "full_window": {
+      "energy_J": 45.2314,
+      "avg_power_W": 0.8038,
+      "duration_s": 56.269,
+      "samples": 421
+    },
+    "inference_window": {
+      "energy_J": 38.0456,
+      "avg_power_W": 0.7721,
+      "duration_s": 49.273,
+      "samples": 369,
+      "energy_per_image_J": 0.190228
+    }
+  },
+  "clock_offset": {
+    "offset_s": 0.020748138427734375,
+    "round_trip_s": 0.0055522918701171875,
+    "offset_median_s": 0.02072620391845703,
+    "offset_std_s": 0.03783846277917676,
+    "n_pings": 7,
+    "n_valid": 7,
+    "measured_at": "2026-07-22T02:55:07.511299",
+    "samples": [
+      {
+        "t1": 1784681707.248781,
+        "t3": 1784681707.4640458,
+        "pi_time": 1784681707.4766214,
+        "round_trip_s": 0.21526479721069336,
+        "offset_s": 0.1202080249786377
+      },
+      {
+        "t1": 1784681707.4640458,
+        "t3": 1784681707.4729867,
+        "pi_time": 1784681707.4894488,
+        "round_trip_s": 0.008940935134887695,
+        "offset_s": 0.020932435989379883
+      },
+      {
+        "t1": 1784681707.4729867,
+        "t3": 1784681707.4788992,
+        "pi_time": 1784681707.4966693,
+        "round_trip_s": 0.0059125423431396484,
+        "offset_s": 0.02072620391845703
+      },
+      {
+        "t1": 1784681707.4788992,
+        "t3": 1784681707.4856484,
+        "pi_time": 1784681707.5026815,
+        "round_trip_s": 0.006749153137207031,
+        "offset_s": 0.020407676696777344
+      },
+      {
+        "t1": 1784681707.4856484,
+        "t3": 1784681707.4994664,
+        "pi_time": 1784681707.5099854,
+        "round_trip_s": 0.013818025588989258,
+        "offset_s": 0.017427921295166016
+      },
+      {
+        "t1": 1784681707.4994664,
+        "t3": 1784681707.505182,
+        "pi_time": 1784681707.5229788,
+        "round_trip_s": 0.005715608596801758,
+        "offset_s": 0.020654678344726562
+      },
+      {
+        "t1": 1784681707.505182,
+        "t3": 1784681707.5107343,
+        "pi_time": 1784681707.5287063,
+        "round_trip_s": 0.0055522918701171875,
+        "offset_s": 0.020748138427734375
+      }
+    ]
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "pca_enabled": true,
+  "pca_components": null,
+  "pca_target": 0.95,
+  "pca_target_type": "explained_variance",
+  "pca_label": "pca95var",
+  "samples_per_class": 10,
+  "seed": 1618,
+  "experiment_id": "exp_029_pca95var_spc10_s1618",
+  "scenario_name": "scenario_cifar10_nearest_centroid",
+  "dataset_name": "cifar10",
+  "classifier_type": "NearestCentroidClassifier",
+  "config_source": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_cifar10_nearest_centroid\\config.json",
+  "inference_resolution": [
+    32,
+    32
+  ],
+  "python_example_dir": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_cifar10_nearest_centroid",
+  "raw_data_dir": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Deployment-Packager\\nats-model-service\\raw_data\\scenario_cifar10_nearest_centroid",
+  "started_at": "2026-07-22T10:08:12.559503",
+  "result_received_at": "2026-07-22T10:09:10.289745",
+  "pca_explained_variance_%": 95.14110565185547,
+  "power": {
+    "full_window": {
+      "energy_J": 45.6505,
+      "avg_power_W": 0.7951,
+      "duration_s": 57.412,
+      "samples": 429
+    },
+    "inference_window": {
+      "energy_J": 37.7721,
+      "avg_power_W": 0.7711,
+      "duration_s": 48.982,
+      "samples": 366,
+      "energy_per_image_J": 0.188861
+    }
+  },
+  "clock_offset": {
+    "offset_s": 0.005361318588256836,
+    "round_trip_s": 0.005089759826660156,
+    "offset_median_s": 0.005433559417724609,
+    "offset_std_s": 0.0011212138993794021,
+    "n_pings": 7,
+    "n_valid": 7,
+    "measured_at": "2026-07-22T10:08:12.619934",
+    "samples": [
+      {
+        "t1": 1784707692.5695033,
+        "t3": 1784707692.5771382,
+        "pi_time": 1784707692.5792282,
+        "round_trip_s": 0.007634878158569336,
+        "offset_s": 0.005907297134399414
+      },
+      {
+        "t1": 1784707692.5771382,
+        "t3": 1784707692.5838318,
+        "pi_time": 1784707692.5859184,
+        "round_trip_s": 0.006693601608276367,
+        "offset_s": 0.005433559417724609
+      },
+      {
+        "t1": 1784707692.5838318,
+        "t3": 1784707692.5898447,
+        "pi_time": 1784707692.592239,
+        "round_trip_s": 0.006012916564941406,
+        "offset_s": 0.005400657653808594
+      },
+      {
+        "t1": 1784707692.5898447,
+        "t3": 1784707692.5979578,
+        "pi_time": 1784707692.6001198,
+        "round_trip_s": 0.00811314582824707,
+        "offset_s": 0.006218671798706055
+      },
+      {
+        "t1": 1784707692.5979578,
+        "t3": 1784707692.6084435,
+        "pi_time": 1784707692.6059883,
+        "round_trip_s": 0.010485649108886719,
+        "offset_s": 0.0027875900268554688
+      },
+      {
+        "t1": 1784707692.6084435,
+        "t3": 1784707692.6135333,
+        "pi_time": 1784707692.6163497,
+        "round_trip_s": 0.005089759826660156,
+        "offset_s": 0.005361318588256836
+      },
+      {
+        "t1": 1784707692.6135333,
+        "t3": 1784707692.6199348,
+        "pi_time": 1784707692.6221955,
+        "round_trip_s": 0.006401538848876953,
+        "offset_s": 0.005461454391479492
+      }
+    ]
+  }
+}

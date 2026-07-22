@@ -411,7 +411,7 @@ def main() -> int:
         description="Audit power-trace coverage of the inference windows")
     ap.add_argument("results", nargs="?", type=Path, default=DEFAULT_RESULTS_DIR,
                     help=f"results directory (default: {DEFAULT_RESULTS_DIR})")
-    ap.add_argument("--rate", type=float, default=5.0,
+    ap.add_argument("--rate", type=float, default=8.0,
                     help="sampling rate of power and resource logs in Hz (default 5)")
     ap.add_argument("--max-gap", type=float, default=1.0,
                     help="FAIL on sampling gaps above this many seconds (default 1.0)")
