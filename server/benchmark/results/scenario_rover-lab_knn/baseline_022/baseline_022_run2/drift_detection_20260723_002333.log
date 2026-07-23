@@ -1,0 +1,19 @@
+2026-07-23 00:23:33,199 - drift_detection - INFO - Logging initialized at level INFO
+2026-07-23 00:23:33,200 - drift_detection - INFO - Log file: logs/drift_detection_20260723_002333.log
+2026-07-23 00:23:33,206 - drift_detection - INFO - Starting folder-based On-Device Drift Detection
+2026-07-23 00:23:33,206 - drift_detection - INFO - Run ID: 20260723_002333
+2026-07-23 00:23:33,207 - drift_detection - INFO - Device ID: hans
+2026-07-23 00:23:33,213 - drift_detection - INFO - Shuffled 40 input images with seed=42
+2026-07-23 00:23:33,213 - drift_detection - INFO - Discovered 40 input images in ./input_images
+2026-07-23 00:23:33,214 - drift_detection - INFO - Loaded 2 labels: ['negative', 'obstacle']
+2026-07-23 00:23:33,236 - drift_detection - INFO - KNN initialized with 4 samples
+2026-07-23 00:23:33,236 - drift_detection - INFO - Initialized 0 drift detector(s)
+2026-07-23 00:23:33,237 - drift_detection - INFO - BASELINE MODE: feature-extraction/classifier calls are skipped this run. Setup, delay_ms pacing, and resource/power logging are unchanged — only the compute call itself is omitted, to measure warm-idle power/CPU/RAM.
+2026-07-23 00:23:33,239 - drift_detection - INFO - Resource CSV logging started: logs/resource_usage_20260723_002333.csv at 5.0 Hz
+2026-07-23 00:23:41,453 - drift_detection - INFO - No more input images. Stopping.
+2026-07-23 00:23:41,548 - drift_detection - INFO - Resource CSV logging stopped
+2026-07-23 00:23:41,587 - drift_detection - INFO - Merged analysis created: logs/merged_analysis_20260723_002333.csv
+2026-07-23 00:23:41,587 - drift_detection - INFO - Final accuracy: 0.0000 based on 40/40 labeled samples
+2026-07-23 00:23:41,589 - drift_detection - INFO - Final performance summary: {'run_id': '20260723_002333', 'total_inferences': 40, 'total_drift_events': 0, 'total_drifted_inferences': 0, 'avg_latency_ms': 0.012212991714477539, 'max_latency_ms': 0.013828277587890625, 'min_latency_ms': 0.0069141387939453125, 'avg_confidence': 0.0, 'runtime_seconds': 8.390959978103638, 'labeled_samples': 40, 'accuracy': 0.0}
+2026-07-23 00:23:41,590 - drift_detection - INFO - Final merged analysis file: logs/merged_analysis_20260723_002333.csv
+2026-07-23 00:23:41,590 - drift_detection - INFO - Shutdown complete

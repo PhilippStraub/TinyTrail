@@ -1,0 +1,98 @@
+{
+  "pca_enabled": true,
+  "pca_components": null,
+  "pca_target": 0.95,
+  "pca_target_type": "explained_variance",
+  "pca_label": "pca95var",
+  "samples_per_class": 30,
+  "seed": 3141,
+  "experiment_id": "exp_047_pca95var_spc30_s3141",
+  "scenario_name": "scenario_rover-lab_nearest_centroid",
+  "dataset_name": "rover-lab",
+  "classifier_type": "NearestCentroidClassifier",
+  "config_source": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_rover-lab_nearest_centroid\\config.json",
+  "inference_resolution": [
+    160,
+    160
+  ],
+  "python_example_dir": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_rover-lab_nearest_centroid",
+  "raw_data_dir": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Deployment-Packager\\nats-model-service\\raw_data\\scenario_rover-lab_nearest_centroid",
+  "started_at": "2026-07-23T03:51:29.457685",
+  "result_received_at": "2026-07-23T03:51:58.855950",
+  "pca_explained_variance_%": 95.58278322219849,
+  "power": {
+    "full_window": {
+      "energy_J": 40.688,
+      "avg_power_W": 1.398,
+      "duration_s": 29.105,
+      "samples": 214
+    },
+    "inference_window": {
+      "energy_J": 28.0176,
+      "avg_power_W": 1.7725,
+      "duration_s": 15.807,
+      "samples": 117,
+      "energy_per_image_J": 0.70044
+    }
+  },
+  "clock_offset": {
+    "offset_s": -0.02490973472595215,
+    "round_trip_s": 0.007383823394775391,
+    "offset_median_s": -0.02494978904724121,
+    "offset_std_s": 0.002382827267291432,
+    "n_pings": 7,
+    "n_valid": 7,
+    "measured_at": "2026-07-23T03:51:29.545794",
+    "samples": [
+      {
+        "t1": 1784771489.4644032,
+        "t3": 1784771489.4770381,
+        "pi_time": 1784771489.4429173,
+        "round_trip_s": 0.012634992599487305,
+        "offset_s": -0.027803421020507812
+      },
+      {
+        "t1": 1784771489.4770381,
+        "t3": 1784771489.4853354,
+        "pi_time": 1784771489.4561965,
+        "round_trip_s": 0.008297204971313477,
+        "offset_s": -0.024990320205688477
+      },
+      {
+        "t1": 1784771489.4853354,
+        "t3": 1784771489.4931042,
+        "pi_time": 1784771489.4642699,
+        "round_trip_s": 0.007768869400024414,
+        "offset_s": -0.02494978904724121
+      },
+      {
+        "t1": 1784771489.4931042,
+        "t3": 1784771489.5183005,
+        "pi_time": 1784771489.4859023,
+        "round_trip_s": 0.025196313858032227,
+        "offset_s": -0.019800186157226562
+      },
+      {
+        "t1": 1784771489.5183005,
+        "t3": 1784771489.528601,
+        "pi_time": 1784771489.498714,
+        "round_trip_s": 0.010300397872924805,
+        "offset_s": -0.024736881256103516
+      },
+      {
+        "t1": 1784771489.528601,
+        "t3": 1784771489.5359848,
+        "pi_time": 1784771489.507383,
+        "round_trip_s": 0.007383823394775391,
+        "offset_s": -0.02490973472595215
+      },
+      {
+        "t1": 1784771489.5359848,
+        "t3": 1784771489.545736,
+        "pi_time": 1784771489.5156407,
+        "round_trip_s": 0.009751319885253906,
+        "offset_s": -0.02521967887878418
+      }
+    ]
+  }
+}

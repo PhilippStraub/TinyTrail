@@ -1,0 +1,19 @@
+2026-07-22 19:02:40,516 - drift_detection - INFO - Logging initialized at level INFO
+2026-07-22 19:02:40,517 - drift_detection - INFO - Log file: logs/drift_detection_20260722_190240.log
+2026-07-22 19:02:40,523 - drift_detection - INFO - Starting folder-based On-Device Drift Detection
+2026-07-22 19:02:40,524 - drift_detection - INFO - Run ID: 20260722_190240
+2026-07-22 19:02:40,524 - drift_detection - INFO - Device ID: hans
+2026-07-22 19:02:40,530 - drift_detection - INFO - Shuffled 40 input images with seed=1337
+2026-07-22 19:02:40,531 - drift_detection - INFO - Discovered 40 input images in ./input_images
+2026-07-22 19:02:40,531 - drift_detection - INFO - Loaded 2 labels: ['negative', 'obstacle']
+2026-07-22 19:02:40,587 - drift_detection - INFO - StandardScalerPCA transformer initialized
+2026-07-22 19:02:40,805 - drift_detection - INFO - KNN initialized with 100 samples
+2026-07-22 19:02:40,805 - drift_detection - INFO - Initialized 0 drift detector(s)
+2026-07-22 19:02:40,808 - drift_detection - INFO - Resource CSV logging started: logs/resource_usage_20260722_190240.csv at 5.0 Hz
+2026-07-22 19:02:56,888 - drift_detection - INFO - No more input images. Stopping.
+2026-07-22 19:02:57,086 - drift_detection - INFO - Resource CSV logging stopped
+2026-07-22 19:02:57,114 - drift_detection - INFO - Merged analysis created: logs/merged_analysis_20260722_190240.csv
+2026-07-22 19:02:57,115 - drift_detection - INFO - Final accuracy: 0.9250 based on 40/40 labeled samples
+2026-07-22 19:02:57,116 - drift_detection - INFO - Final performance summary: {'run_id': '20260722_190240', 'total_inferences': 40, 'total_drift_events': 0, 'total_drifted_inferences': 0, 'avg_latency_ms': 198.29485416412354, 'max_latency_ms': 203.0642032623291, 'min_latency_ms': 196.12884521484375, 'avg_confidence': 0.9416666701436043, 'runtime_seconds': 16.60092043876648, 'labeled_samples': 40, 'accuracy': 0.925}
+2026-07-22 19:02:57,117 - drift_detection - INFO - Final merged analysis file: logs/merged_analysis_20260722_190240.csv
+2026-07-22 19:02:57,117 - drift_detection - INFO - Shutdown complete
