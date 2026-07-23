@@ -1,0 +1,19 @@
+2026-07-23 14:11:55,876 - drift_detection - INFO - Logging initialized at level INFO
+2026-07-23 14:11:55,877 - drift_detection - INFO - Log file: logs/drift_detection_20260723_141155.log
+2026-07-23 14:11:55,877 - drift_detection - INFO - BLAS thread pin: OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 (expect 1 — keeps PCA single-threaded for clean energy measurement)
+2026-07-23 14:11:55,883 - drift_detection - INFO - Starting folder-based On-Device Drift Detection
+2026-07-23 14:11:55,884 - drift_detection - INFO - Run ID: 20260723_141155
+2026-07-23 14:11:55,884 - drift_detection - INFO - Device ID: hans
+2026-07-23 14:11:55,910 - drift_detection - INFO - Shuffled 200 input images with seed=9876
+2026-07-23 14:11:55,910 - drift_detection - INFO - Discovered 200 input images in ./input_images
+2026-07-23 14:11:55,911 - drift_detection - INFO - Loaded 10 labels: ['cassette_player', 'chain_saw', 'church', 'english_springer', 'french_horn', 'garbage_truck', 'gas_pump', 'golf_ball', 'parachute', 'tench']
+2026-07-23 14:11:57,125 - drift_detection - INFO - KNN initialized with 300 samples
+2026-07-23 14:11:57,126 - drift_detection - INFO - Initialized 0 drift detector(s)
+2026-07-23 14:11:57,128 - drift_detection - INFO - Resource CSV logging started: logs/resource_usage_20260723_141155.csv at 5.0 Hz
+2026-07-23 14:13:52,707 - drift_detection - INFO - No more input images. Stopping.
+2026-07-23 14:13:52,795 - drift_detection - INFO - Resource CSV logging stopped
+2026-07-23 14:13:52,922 - drift_detection - INFO - Merged analysis created: logs/merged_analysis_20260723_141155.csv
+2026-07-23 14:13:52,922 - drift_detection - INFO - Final accuracy: 0.9550 based on 200/200 labeled samples
+2026-07-23 14:13:52,927 - drift_detection - INFO - Final performance summary: {'run_id': '20260723_141155', 'total_inferences': 200, 'total_drift_events': 0, 'total_drifted_inferences': 0, 'avg_latency_ms': 352.4401068687439, 'max_latency_ms': 380.91301918029785, 'min_latency_ms': 345.8378314971924, 'avg_confidence': 0.9683333347737789, 'runtime_seconds': 117.05138731002808, 'labeled_samples': 200, 'accuracy': 0.955}
+2026-07-23 14:13:52,927 - drift_detection - INFO - Final merged analysis file: logs/merged_analysis_20260723_141155.csv
+2026-07-23 14:13:52,927 - drift_detection - INFO - Shutdown complete

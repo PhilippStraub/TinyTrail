@@ -1,0 +1,98 @@
+{
+  "pca_enabled": true,
+  "pca_components": null,
+  "pca_target": 0.95,
+  "pca_target_type": "explained_variance",
+  "pca_label": "pca95var",
+  "samples_per_class": 100,
+  "seed": 9876,
+  "experiment_id": "exp_120_pca95var_spc100_s9876",
+  "scenario_name": "scenario_imagenette_knn",
+  "dataset_name": "imagenette",
+  "classifier_type": "LightweightKNN",
+  "config_source": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_imagenette_knn\\config.json",
+  "inference_resolution": [
+    224,
+    224
+  ],
+  "python_example_dir": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Retrainer\\on-device-drift-detection-main\\examples\\python_examples\\scenario_imagenette_knn",
+  "raw_data_dir": "C:\\Users\\Philipp\\Documents\\00_TinyMLOps-Benchmark\\TinyTrail\\server\\Deployment-Packager\\nats-model-service\\raw_data\\scenario_imagenette_knn",
+  "started_at": "2026-07-23T11:54:13.417912",
+  "result_received_at": "2026-07-23T11:56:36.163435",
+  "pca_explained_variance_%": 95.01878356933594,
+  "power": {
+    "full_window": {
+      "energy_J": 151.789,
+      "avg_power_W": 1.0686,
+      "duration_s": 142.045,
+      "samples": 1061
+    },
+    "inference_window": {
+      "energy_J": 129.436,
+      "avg_power_W": 1.0974,
+      "duration_s": 117.949,
+      "samples": 882,
+      "energy_per_image_J": 0.64718
+    }
+  },
+  "clock_offset": {
+    "offset_s": 0.0051953792572021484,
+    "round_trip_s": 0.009050846099853516,
+    "offset_median_s": 0.0050601959228515625,
+    "offset_std_s": 0.06415507948503096,
+    "n_pings": 7,
+    "n_valid": 7,
+    "measured_at": "2026-07-23T11:54:13.850070",
+    "samples": [
+      {
+        "t1": 1784800453.4252214,
+        "t3": 1784800453.777507,
+        "pi_time": 1784800453.775426,
+        "round_trip_s": 0.35228562355041504,
+        "offset_s": 0.17406177520751953
+      },
+      {
+        "t1": 1784800453.777507,
+        "t3": 1784800453.7935557,
+        "pi_time": 1784800453.7873669,
+        "round_trip_s": 0.016048669815063477,
+        "offset_s": 0.0018353462219238281
+      },
+      {
+        "t1": 1784800453.7935557,
+        "t3": 1784800453.8046973,
+        "pi_time": 1784800453.8040102,
+        "round_trip_s": 0.011141538619995117,
+        "offset_s": 0.004883527755737305
+      },
+      {
+        "t1": 1784800453.8046973,
+        "t3": 1784800453.8137481,
+        "pi_time": 1784800453.814418,
+        "round_trip_s": 0.009050846099853516,
+        "offset_s": 0.0051953792572021484
+      },
+      {
+        "t1": 1784800453.8137481,
+        "t3": 1784800453.8274252,
+        "pi_time": 1784800453.823995,
+        "round_trip_s": 0.013677120208740234,
+        "offset_s": 0.0034084320068359375
+      },
+      {
+        "t1": 1784800453.8274252,
+        "t3": 1784800453.836951,
+        "pi_time": 1784800453.8372483,
+        "round_trip_s": 0.009525775909423828,
+        "offset_s": 0.0050601959228515625
+      },
+      {
+        "t1": 1784800453.836951,
+        "t3": 1784800453.8500707,
+        "pi_time": 1784800453.8492901,
+        "round_trip_s": 0.013119697570800781,
+        "offset_s": 0.005779266357421875
+      }
+    ]
+  }
+}
