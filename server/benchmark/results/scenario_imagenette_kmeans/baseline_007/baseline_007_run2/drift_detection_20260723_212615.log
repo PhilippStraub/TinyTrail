@@ -1,0 +1,20 @@
+2026-07-23 21:26:15,723 - drift_detection - INFO - Logging initialized at level INFO
+2026-07-23 21:26:15,724 - drift_detection - INFO - Log file: logs/drift_detection_20260723_212615.log
+2026-07-23 21:26:15,724 - drift_detection - INFO - BLAS thread pin: OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 (expect 1 — keeps PCA single-threaded for clean energy measurement)
+2026-07-23 21:26:15,730 - drift_detection - INFO - Starting folder-based On-Device Drift Detection
+2026-07-23 21:26:15,731 - drift_detection - INFO - Run ID: 20260723_212615
+2026-07-23 21:26:15,731 - drift_detection - INFO - Device ID: hans
+2026-07-23 21:26:15,757 - drift_detection - INFO - Shuffled 200 input images with seed=42
+2026-07-23 21:26:15,757 - drift_detection - INFO - Discovered 200 input images in ./input_images
+2026-07-23 21:26:15,758 - drift_detection - INFO - Loaded 10 labels: ['cassette_player', 'chain_saw', 'church', 'english_springer', 'french_horn', 'garbage_truck', 'gas_pump', 'golf_ball', 'parachute', 'tench']
+2026-07-23 21:26:15,850 - drift_detection - INFO - KNN initialized with 20 samples
+2026-07-23 21:26:15,851 - drift_detection - INFO - Initialized 0 drift detector(s)
+2026-07-23 21:26:15,851 - drift_detection - INFO - BASELINE MODE: feature-extraction/classifier calls are skipped this run. Setup, delay_ms pacing, and resource/power logging are unchanged — only the compute call itself is omitted, to measure warm-idle power/CPU/RAM.
+2026-07-23 21:26:15,854 - drift_detection - INFO - Resource CSV logging started: logs/resource_usage_20260723_212615.csv at 5.0 Hz
+2026-07-23 21:27:03,725 - drift_detection - INFO - No more input images. Stopping.
+2026-07-23 21:27:03,911 - drift_detection - INFO - Resource CSV logging stopped
+2026-07-23 21:27:04,023 - drift_detection - INFO - Merged analysis created: logs/merged_analysis_20260723_212615.csv
+2026-07-23 21:27:04,024 - drift_detection - INFO - Final accuracy: 0.0000 based on 200/200 labeled samples
+2026-07-23 21:27:04,028 - drift_detection - INFO - Final performance summary: {'run_id': '20260723_212615', 'total_inferences': 200, 'total_drift_events': 0, 'total_drifted_inferences': 0, 'avg_latency_ms': 0.017904043197631836, 'max_latency_ms': 0.021457672119140625, 'min_latency_ms': 0.009775161743164062, 'avg_confidence': 0.0, 'runtime_seconds': 48.3052933216095, 'labeled_samples': 200, 'accuracy': 0.0}
+2026-07-23 21:27:04,028 - drift_detection - INFO - Final merged analysis file: logs/merged_analysis_20260723_212615.csv
+2026-07-23 21:27:04,028 - drift_detection - INFO - Shutdown complete
