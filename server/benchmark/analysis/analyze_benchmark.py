@@ -3,26 +3,35 @@
 Benchmark analysis pipeline for the KNN Sweet-Spot project (DBE SS26).
 
 Crawls every results/exp_* folder, extracts one tidy row of metrics per
-experiment, aggregates across seeds, and produces the figures + descriptive
-analysis the project paper requires.
+experiment, and reproduces the paper's five-step "Experimental Analysis":
+
+  (i)   data alignment (clock-offset correction) + baseline subtraction
+  (ii)  per-experiment EDP and Accuracy
+  (iii) seed-level aggregation (mean ± sample std ± 95% CI over the 10 seeds)
+  (iv)  sample-size-level aggregation: config-level mean Acc/EDP, EDP growth
+        (sigma_EDP) across sample-size stages, robust saturation point s*,
+        and peak memory footprint (max over stages of the per-stage mean RAM)
+  (v)   suitability measure per configuration, gated by the RAM budget
 
 It works at two levels:
 
-  LEVEL 1  experiment_summary.csv    one row per experiment (the canonical data file)
-  LEVEL 2  aggregated_by_config.csv  mean ± std ± 95% CI per (pca, samples_per_class),
-                                     averaged over seeds (the replicates)
+  LEVEL 1  experiment_summary.csv       one row per experiment (the canonical data file)
+  LEVEL 2  aggregated_by_config.csv     mean ± std ± 95% CI per (config, samples_per_class),
+                                        averaged over seeds (the replicates)
+  LEVEL 3  suitability_by_config.csv    one row per configuration (step iv/v)
+  LEVEL 3  suitability_table.csv        the same, formatted for the paper's LaTeX table
 
-and writes:
+and writes, per dataset only (no more per-experiment figures):
 
-  figures/                 accuracy / energy / memory / cpu / latency vs samples
-                           (PCA vs no-PCA, with CI bands) + a 2x2 paper grid
-  per_experiment/          per-experiment resource timeline (power+cpu+ram+latency)
-  analysis_report.md       descriptive analysis, sweet-spot, PCA effect, methods
+  figures/  <dataset>_<metric>_vs_samples.pdf   individual curves with a sample-std band
+            <dataset>_summary_grid.pdf          the paper figure (Springer LNCS ready)
+            <dataset>_pca_explained_variance.pdf
+  analysis_report.md   descriptive analysis, sweet-spot, PCA effect, methods
 
 Usage (repo venv python):
   python analyze_benchmark.py
   python analyze_benchmark.py --results-dir ../results --out-dir ../results/analysis
-  python analyze_benchmark.py --no-per-experiment       # skip per-experiment timelines
+  python analyze_benchmark.py --ram-budget-mb 512
 """
 
 import argparse
@@ -30,8 +39,9 @@ import json
 import os
 import sys
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -40,6 +50,7 @@ import matplotlib
 if "ipykernel" not in sys.modules and not os.environ.get("JPY_PARENT_PID"):
     matplotlib.use("Agg")       # headless CLI; keep notebook backends interactive/inline
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 try:
     from scipy import stats as scipy_stats
@@ -55,6 +66,59 @@ CLASSIFIER_LABELS = {
     "NearestCentroidClassifier": "Nearest Centroid",
     "KMeansPrototypeClassifier": "KMeans",
 }
+
+# Publication color scheme: one dark/light hue pair per classifier family
+# (dark = without PCA, light = with PCA), colorblind-safe ColorBrewer tones.
+# KNN is fixed to dark/light blue per the paper; the other families get their
+# own hue so all configurations stay visually distinguishable in one figure.
+_CLASSIFIER_COLORS: Dict[str, Tuple[str, str]] = {
+    "KNN":               ("#08519C", "#9ECAE1"),  # dark blue / light blue
+    "Nearest Centroid":  ("#238B45", "#A1D99B"),  # dark green / light green
+    "KMeans":            ("#D94801", "#FDAE6B"),  # dark orange / light orange
+}
+_DEFAULT_COLORS = ("#3F3F3F", "#BFBFBF")  # dark/light gray fallback
+
+# Short display names matching the paper's table notation (k-NN, NC, K-Means) —
+# used only for the space-constrained suitability table.
+_CLASSIFIER_SHORT_NAMES: Dict[str, str] = {
+    "KNN": "k-NN",
+    "Nearest Centroid": "NC",
+    "KMeans": "K-Means",
+}
+
+# Full names for figure legends, where there is room to spell "NC" out.
+_CLASSIFIER_LEGEND_NAMES: Dict[str, str] = {
+    "KNN": "k-NN",
+    "Nearest Centroid": "Nearest Centroid",
+    "KMeans": "K-Means",
+}
+
+# The paper's 12 swept sample-size stages (stored reference samples per class).
+SAMPLE_SIZES_CANONICAL = [2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+
+
+def config_color(classifier_label: str, pca_enabled: bool) -> str:
+    """Dark (no PCA) / light (PCA) hue for a given classifier family."""
+    dark, light = _CLASSIFIER_COLORS.get(classifier_label, _DEFAULT_COLORS)
+    return light if pca_enabled else dark
+
+
+def config_display_name(classifier_label: str, pca_enabled: bool) -> str:
+    """Short paper-style config label, e.g. 'k-NN + PCA', 'NC', 'K-Means' —
+    for the space-constrained suitability table only."""
+    short = _CLASSIFIER_SHORT_NAMES.get(classifier_label, classifier_label)
+    return f"{short} + PCA" if pca_enabled else short
+
+
+def config_legend_name(classifier_label: str, pca_enabled: bool) -> str:
+    """Full config label for figure legends, e.g. 'Nearest Centroid + PCA'."""
+    full = _CLASSIFIER_LEGEND_NAMES.get(classifier_label, classifier_label)
+    return f"{full} + PCA" if pca_enabled else full
+
+# Step (i): a PC<->Pi clock disagreement is only realigned once it reaches one
+# energy-sampling period (8 Hz -> 0.125 s) — below that, "correcting" the window
+# would just inject sampling-rate noise rather than remove a real skew.
+CLOCK_OFFSET_REALIGN_THRESHOLD_S = 0.125
 
 # Runs excluded from every aggregate. Was populated with 3 IDs from the pre-fix legacy
 # campaign (byte-identical duplicate ZIPs misattributed to the wrong experiment) — that
@@ -417,6 +481,77 @@ def _local_baseline_sem_w(
     return float(np.sqrt(sum(s ** 2 for s in sems)) / 2.0)
 
 
+@lru_cache(maxsize=None)
+def _load_cpu_ram_baseline_blocks(scenario_dir: Path) -> List[Dict]:
+    """CPU/RAM baseline per baseline_NNN block, mirroring _load_baseline_blocks()
+    for power. baseline_summary.json only records power, so CPU/RAM must be read
+    from each of the block's 3 warm-idle run dirs (baseline_NNN_run1/2/3) directly
+    — same merged_analysis_*.csv schema an experiment uses, measured the same way
+    (drop the first CPU sample as the model-load spike, mean RSS) — then averaged
+    into the one three-measurement-block reading the paper's step (i) describes.
+
+    Cached per scenario dir: every experiment in a scenario shares the same
+    handful of baseline blocks, so without caching this would re-parse the same
+    merged_analysis_*.csv files once per experiment instead of once per campaign.
+    """
+    blocks: List[Dict] = []
+    for d in sorted(scenario_dir.glob("baseline_*")):
+        summary_path = d / "baseline_summary.json"
+        if not summary_path.exists():
+            continue
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        recorded_at = summary.get("recorded_at")
+        if not recorded_at:
+            continue
+        cpu_vals, rss_vals = [], []
+        for run_dir in sorted(d.glob(f"{d.name}_run*")):
+            merged_path = _latest(run_dir.glob("merged_analysis_*.csv"))
+            if merged_path is None:
+                continue
+            try:
+                run_df = pd.read_csv(merged_path)
+            except Exception:
+                continue
+            if "cpu_percent_total" in run_df.columns:
+                cpu = pd.to_numeric(run_df["cpu_percent_total"], errors="coerce").dropna()
+                if len(cpu):
+                    cpu_vals.append(float(cpu.iloc[1:].mean() if len(cpu) > 1 else cpu.mean()))
+            if "process_rss_mb_resource" in run_df.columns:
+                rss = pd.to_numeric(run_df["process_rss_mb_resource"], errors="coerce").dropna()
+                if len(rss):
+                    rss_vals.append(float(rss.mean()))
+        if cpu_vals or rss_vals:
+            blocks.append({
+                "recorded_at": recorded_at,
+                "cpu_percent_mean": float(np.mean(cpu_vals)) if cpu_vals else None,
+                "memory_rss_mb_mean": float(np.mean(rss_vals)) if rss_vals else None,
+            })
+    blocks.sort(key=lambda b: b.get("recorded_at", ""))
+    return blocks
+
+
+def _local_baseline_cpu_ram(
+    blocks: List[Dict],
+    started_at_iso: Optional[str],
+    result_received_at_iso: Optional[str],
+) -> Dict[str, Optional[float]]:
+    """Mean of the baseline block(s) bracketing this experiment's time window,
+    for CPU and RAM — the same "average of the two bracketing blocks" rule as
+    _local_baseline_power_w(), applied to _load_cpu_ram_baseline_blocks()'s output."""
+    matched = _bracketing_blocks(blocks, started_at_iso, result_received_at_iso)
+    if not matched:
+        return {"cpu_percent": None, "memory_rss_mb": None}
+    cpu_vals = [b["cpu_percent_mean"] for b in matched if b.get("cpu_percent_mean") is not None]
+    rss_vals = [b["memory_rss_mb_mean"] for b in matched if b.get("memory_rss_mb_mean") is not None]
+    return {
+        "cpu_percent": float(np.mean(cpu_vals)) if cpu_vals else None,
+        "memory_rss_mb": float(np.mean(rss_vals)) if rss_vals else None,
+    }
+
+
 def _offset_corrected_power_metrics(exp_dir: Path, meta: Dict, n_images: Optional[int]) -> Dict:
     """Re-integrate the raw power_*.csv over the inference window, shifted by
     the measured PC<->Pi clock offset (T_pc_equiv = T_pi - offset_s) instead of
@@ -580,16 +715,52 @@ def load_experiment(exp_dir: Path) -> Optional[Dict]:
     power = meta.get("power", {}) or {}
     inf = power.get("inference_window", {}) or {}
     full = power.get("full_window", {}) or {}
-    row["avg_power_W"]              = inf.get("avg_power_W")
-    row["energy_per_image_J"]       = inf.get("energy_per_image_J")
-    row["inference_duration_s"]     = inf.get("duration_s") or full.get("duration_s")
+    avg_power_w_raw          = inf.get("avg_power_W")
+    energy_per_image_j_raw   = inf.get("energy_per_image_J")
+    inference_duration_s_raw = inf.get("duration_s") or full.get("duration_s")
 
-    # ── Local (warm, time-bracketed) baseline correction + EDP ───────────────
+    # ── Step (i), data alignment: clock-offset correction (measured PC<->Pi
+    # handshake, see PLAN_ZEIT_HANDSHAKE.md) ──────────────────────────────────
+    # Re-integrate the raw power trace shifted by the measured offset, then only
+    # adopt that realigned reading as the experiment's energy value once the
+    # offset reaches CLOCK_OFFSET_REALIGN_THRESHOLD_S — exactly the paper's "if
+    # the deviation is >=0.125s, the affected experiment energy values are
+    # aligned by the collected offset" rule. Below threshold, the raw metadata
+    # reading is kept. offset_metrics/clock_offset_s are always recorded (even
+    # when unused) so the measured offset can be audited across the campaign.
+    clock_offset = meta.get("clock_offset") or {}
+    offset_s = clock_offset.get("offset_s")
+    row["clock_offset_s"] = offset_s
+    row["clock_offset_round_trip_s"] = clock_offset.get("round_trip_s")
+    offset_metrics = _offset_corrected_power_metrics(exp_dir, meta, row["n_images"])
+    row.update(offset_metrics)
+
+    clock_realigned = (
+        offset_s is not None
+        and abs(offset_s) >= CLOCK_OFFSET_REALIGN_THRESHOLD_S
+        and offset_metrics.get("avg_power_W_offset_corrected") is not None
+    )
+    row["clock_realigned"] = clock_realigned
+    if clock_realigned:
+        row["avg_power_W"] = offset_metrics["avg_power_W_offset_corrected"]
+        row["energy_per_image_J"] = offset_metrics.get(
+            "energy_per_image_J_offset_corrected", energy_per_image_j_raw)
+        row["inference_duration_s"] = offset_metrics.get(
+            "duration_s_offset_corrected", inference_duration_s_raw)
+    else:
+        row["avg_power_W"] = avg_power_w_raw
+        row["energy_per_image_J"] = energy_per_image_j_raw
+        row["inference_duration_s"] = inference_duration_s_raw
+    row["avg_power_W_raw"] = avg_power_w_raw  # kept for reference/audit only
+
+    # ── Step (i), baseline subtraction + Step (ii), EDP ──────────────────────
     # Net power is computed from the nearest warm-idle baseline_* blocks in the
     # same scenario dir (see _local_baseline_power_w) — not a single global
-    # config value. EDP = P_bar * T_bar, scope-matched: net power over the same
-    # window as latency_ms_mean (both "compute-attributable", not diluted by
-    # the delay_ms idle time — see project discussion on EDP scale-matching).
+    # config value — applied to the (possibly clock-realigned) avg_power_W
+    # above, so EDP always reflects step (i) end-to-end. EDP = P_bar * T_bar,
+    # scope-matched: net power over the same window as latency_ms_mean (both
+    # "compute-attributable", not diluted by the delay_ms idle time — see
+    # project discussion on EDP scale-matching).
     blocks = _load_baseline_blocks(exp_dir.parent)
     local_baseline_w = _local_baseline_power_w(
         blocks, meta.get("started_at"), meta.get("result_received_at"),
@@ -620,27 +791,33 @@ def load_experiment(exp_dir: Path) -> Optional[Dict]:
     else:
         row["EDP_systematic_sem"] = np.nan
 
-    # ── Clock-offset correction (measured PC<->Pi handshake, see PLAN_ZEIT_HANDSHAKE.md) ──
-    # Independent of the local-baseline correction above (idle-power drift vs. clock
-    # skew are separate, non-exclusive error sources); combined into *_offset_corrected
-    # columns below. clock_offset_s/round_trip_s are always present (even None) so the
-    # measured offset can be plotted across the whole campaign as a drift check.
-    clock_offset = meta.get("clock_offset") or {}
-    row["clock_offset_s"] = clock_offset.get("offset_s")
-    row["clock_offset_round_trip_s"] = clock_offset.get("round_trip_s")
-    offset_metrics = _offset_corrected_power_metrics(exp_dir, meta, row["n_images"])
-    row.update(offset_metrics)
-    avg_power_offset = offset_metrics.get("avg_power_W_offset_corrected")
-    if avg_power_offset is not None and local_baseline_w is not None:
-        row["net_avg_power_W_offset_corrected"] = avg_power_offset - local_baseline_w
-    else:
-        row["net_avg_power_W_offset_corrected"] = np.nan
-    if pd.notna(row["net_avg_power_W_offset_corrected"]) and pd.notna(row["latency_ms_mean"]):
-        row["EDP_offset_corrected"] = (
-            float(row["net_avg_power_W_offset_corrected"]) * float(row["latency_ms_mean"]) / 1000.0
-        )
-    else:
-        row["EDP_offset_corrected"] = np.nan
+    # ── Step (i), baseline subtraction: CPU + RAM ────────────────────────────
+    # Same bracketing-block-of-3 design as power (see _load_cpu_ram_baseline_blocks),
+    # applied to the raw per-experiment cpu_percent_mean/memory_rss_mb_mean above.
+    # These net_* columns are the canonical CPU/RAM metrics from here on (used by
+    # aggregate(), the figures, and the peak-memory-footprint in step iv) — the
+    # raw values remain in cpu_percent_mean/memory_rss_mb_mean for reference.
+    cpu_ram_blocks = _load_cpu_ram_baseline_blocks(exp_dir.parent)
+    baseline_cpu_ram = _local_baseline_cpu_ram(
+        cpu_ram_blocks, meta.get("started_at"), meta.get("result_received_at"),
+    )
+    row["local_baseline_cpu_percent"] = baseline_cpu_ram.get("cpu_percent")
+    row["local_baseline_memory_rss_mb"] = baseline_cpu_ram.get("memory_rss_mb")
+    row["net_cpu_percent_mean"] = (
+        row["cpu_percent_mean"] - baseline_cpu_ram["cpu_percent"]
+        if pd.notna(row["cpu_percent_mean"]) and baseline_cpu_ram.get("cpu_percent") is not None
+        else np.nan
+    )
+    row["net_memory_rss_mb_mean"] = (
+        row["memory_rss_mb_mean"] - baseline_cpu_ram["memory_rss_mb"]
+        if pd.notna(row["memory_rss_mb_mean"]) and baseline_cpu_ram.get("memory_rss_mb") is not None
+        else np.nan
+    )
+    row["net_memory_rss_mb_max"] = (
+        row["memory_rss_mb_max"] - baseline_cpu_ram["memory_rss_mb"]
+        if pd.notna(row["memory_rss_mb_max"]) and baseline_cpu_ram.get("memory_rss_mb") is not None
+        else np.nan
+    )
 
     return row
 
@@ -693,6 +870,74 @@ def build_confusion_table(results_dir: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def build_correction_summary(summary: pd.DataFrame) -> pd.DataFrame:
+    """One row per dataset: how large the measured PC<->Pi clock deviation was
+    across all its experiments, and how much step (i)'s corrections actually
+    moved the numbers — a compact audit trail for the data-alignment and
+    baseline-subtraction step, independent of drilling through the per-
+    experiment columns in experiment_summary.csv.
+    """
+    group_col = "dataset_name" if "dataset_name" in summary.columns and summary["dataset_name"].notna().any() else None
+    groups = list(summary.groupby(group_col)) if group_col else [("combined", summary)]
+
+    rows = []
+    for name, g in groups:
+        offs = pd.to_numeric(g.get("clock_offset_s"), errors="coerce").abs().dropna()
+
+        realigned_mask = g["clock_realigned"] == True if "clock_realigned" in g.columns else pd.Series(False, index=g.index)
+        n_realigned = int(realigned_mask.sum())
+        realigned_rows = g[realigned_mask]
+        if n_realigned:
+            power_delta = (pd.to_numeric(realigned_rows["avg_power_W_offset_corrected"], errors="coerce")
+                          - pd.to_numeric(realigned_rows["avg_power_W_raw"], errors="coerce")).abs().dropna()
+        else:
+            power_delta = pd.Series(dtype=float)
+
+        baseline_power = pd.to_numeric(g.get("local_baseline_power_w"), errors="coerce").dropna()
+        baseline_cpu = pd.to_numeric(g.get("local_baseline_cpu_percent"), errors="coerce").dropna()
+        baseline_mem = pd.to_numeric(g.get("local_baseline_memory_rss_mb"), errors="coerce").dropna()
+
+        rows.append({
+            "dataset": name,
+            "n_experiments": int(len(g)),
+            "clock_offset_s_mean_abs": float(offs.mean()) if len(offs) else np.nan,
+            "clock_offset_s_max_abs": float(offs.max()) if len(offs) else np.nan,
+            "clock_offset_realign_threshold_s": CLOCK_OFFSET_REALIGN_THRESHOLD_S,
+            "n_clock_realigned": n_realigned,
+            "clock_realign_power_w_delta_mean": float(power_delta.mean()) if len(power_delta) else np.nan,
+            "clock_realign_power_w_delta_max": float(power_delta.max()) if len(power_delta) else np.nan,
+            "baseline_power_w_subtracted_mean": float(baseline_power.mean()) if len(baseline_power) else np.nan,
+            "baseline_power_w_subtracted_max": float(baseline_power.max()) if len(baseline_power) else np.nan,
+            "baseline_cpu_percent_subtracted_mean": float(baseline_cpu.mean()) if len(baseline_cpu) else np.nan,
+            "baseline_cpu_percent_subtracted_max": float(baseline_cpu.max()) if len(baseline_cpu) else np.nan,
+            "baseline_memory_mb_subtracted_mean": float(baseline_mem.mean()) if len(baseline_mem) else np.nan,
+            "baseline_memory_mb_subtracted_max": float(baseline_mem.max()) if len(baseline_mem) else np.nan,
+        })
+    return pd.DataFrame(rows)
+
+
+def build_latency_summary(summary: pd.DataFrame) -> pd.DataFrame:
+    """One row per dataset: total on-device inference latency summed across
+    every experiment in that dataset — all configurations, seeds, and
+    sample-size stages combined. Distinct from latency_sum_ms itself, which is
+    only the total for one single experiment.
+    """
+    group_col = "dataset_name" if "dataset_name" in summary.columns and summary["dataset_name"].notna().any() else None
+    groups = list(summary.groupby(group_col)) if group_col else [("combined", summary)]
+
+    rows = []
+    for name, g in groups:
+        total_ms = float(pd.to_numeric(g["latency_sum_ms"], errors="coerce").sum())
+        rows.append({
+            "dataset": name,
+            "n_experiments": int(len(g)),
+            "total_inference_latency_ms": total_ms,
+            "total_inference_latency_s": total_ms / 1000.0,
+            "total_inference_latency_h": total_ms / 1000.0 / 3600.0,
+        })
+    return pd.DataFrame(rows)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Level 2 — aggregate across seeds (mean ± std ± 95% CI)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -703,9 +948,12 @@ METRICS = [
     ("recall_macro",          "Recall (macro)"),
     ("f1_macro",              "F1 (macro)"),
     ("avg_power_W",           "Avg power (W)"),
-    ("cpu_percent_mean",      "CPU (%)"),
-    ("memory_rss_mb_mean",    "Memory RSS (MB)"),
-    ("memory_rss_mb_max",     "Peak memory RSS (MB)"),
+    ("net_cpu_percent_mean",     "Net CPU, local baseline (%)"),
+    ("net_memory_rss_mb_mean",   "Net memory RSS, local baseline (MB)"),
+    ("net_memory_rss_mb_max",    "Peak net memory RSS, local baseline (MB)"),
+    ("cpu_percent_mean",      "CPU, raw (%)"),
+    ("memory_rss_mb_mean",    "Memory RSS, raw (MB)"),
+    ("memory_rss_mb_max",     "Peak memory RSS, raw (MB)"),
     ("classifier_state_kb",   "Classifier state (KB)"),
     ("support_set_kb",        "Reference support budget (KB)"),
     ("latency_ms_mean",       "Latency (ms)"),
@@ -770,84 +1018,205 @@ def aggregate(summary: pd.DataFrame, group_cols: Optional[Sequence[str]] = None)
 # Level 3 — paper figures
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _plot_metric_vs_samples(ax, agg: pd.DataFrame, metric: str, title: str):
-    """One metric vs samples-per-class, one line per PCA config, with CI band.
+# Metric -> (paper-style label with unit, is-a-percentage-in-[0,1])
+_METRIC_UNITS: Dict[str, Tuple[str, bool]] = {
+    "accuracy":           ("Accuracy (%)", True),
+    "precision_macro":    ("Precision, macro (%)", True),
+    "recall_macro":       ("Recall, macro (%)", True),
+    "f1_macro":           ("F1, macro (%)", True),
+    "avg_power_W":        ("Avg. power (W)", False),
+    "net_cpu_percent_mean":    ("CPU utilization (%)", False),
+    "net_memory_rss_mb_mean": ("Memory (MB)", False),
+    "net_memory_rss_mb_max":  ("Peak memory (MB)", False),
+    "cpu_percent_mean":   ("CPU utilization, raw (%)", False),
+    "memory_rss_mb_mean": ("Memory, raw (MB)", False),
+    "memory_rss_mb_max":  ("Peak memory, raw (MB)", False),
+    "classifier_state_kb": ("Classifier state (KB)", False),
+    "support_set_kb":     ("Reference support budget (KB)", False),
+    "latency_ms_mean":    ("Latency (ms)", False),
+    "latency_sum_ms":     ("Total inference time (ms)", False),
+    "net_avg_power_W_local": ("Net avg. power (W)", False),
+    "EDP":                ("EDP (J)", False),
+}
 
-    For EDP, a second hatched band shows the systematic baseline uncertainty
-    (EDP_ci95_systematic) alongside the solid seed-CI band — same mean, two
-    different, non-additive uncertainty sources. See _local_baseline_sem_w().
+
+def _config_key(row: pd.Series, default_classifier: Optional[str]) -> Tuple[str, bool]:
+    """(classifier_label, pca_enabled) for one aggregated row, robust to both
+    the single-classifier (agg has no classifier_label column) and
+    multi-classifier (agg has classifier_label/pca_enabled columns) shapes
+    that aggregate() can produce."""
+    classifier = row.get("classifier_label", default_classifier) or default_classifier or "unknown"
+    pca_enabled = bool(row.get("pca_enabled", False))
+    return classifier, pca_enabled
+
+
+def _present_families(agg: pd.DataFrame, default_classifier: Optional[str]) -> List[str]:
+    """Classifier families present in this aggregate, in a fixed, stable order
+    (so the legend column order never shuffles between figures/datasets)."""
+    if "classifier_label" in agg.columns:
+        present = set(agg["classifier_label"].dropna().unique().tolist())
+    else:
+        present = {default_classifier or "unknown"}
+    order = ["KNN", "KMeans", "Nearest Centroid"]
+    return [f for f in order if f in present] + sorted(present - set(order))
+
+
+SAMPLE_SIZE_TICKS = [2, 20, 40, 60, 80, 100]
+
+
+def _set_sample_size_ticks(ax, agg: pd.DataFrame) -> None:
+    """Fixed, evenly legible x-ticks (2, 20, 40, 60, 80, 100) instead of either
+    matplotlib's default linear ticks (which land on unmeasured numbers like 25,
+    75) or all 12 swept stages (2, 5, 10, ... crowd together at the low end and
+    overlap even when rotated). Horizontal, unrotated labels."""
+    ax.set_xticks(SAMPLE_SIZE_TICKS)
+    ax.set_xticklabels([str(t) for t in SAMPLE_SIZE_TICKS], rotation=0, ha="center")
+
+
+def _plot_metric_vs_samples(ax, agg: pd.DataFrame, metric: str, unit_label: str,
+                            default_classifier: Optional[str] = None,
+                            show_legend: bool = True, percent_scale: bool = False):
+    """One metric vs samples-per-class, one line per configuration, with a
+    sample-standard-deviation band (step iii: "mean and sample standard
+    deviation across the ten seeds") — not a confidence interval.
+
+    Colors and labels come from config_color()/config_legend_name() (dark =
+    no PCA, light = PCA, one hue per classifier family) instead of the
+    matplotlib default cycle, so the same configuration always gets the same
+    color across every figure.
     """
-    label_col = "plot_label" if "plot_label" in agg.columns else "pca_label"
-    has_systematic = metric == "EDP" and "EDP_ci95_systematic" in agg.columns
-    for label, sub in agg.groupby(label_col):
+    group_cols = [c for c in ("classifier_label", "pca_enabled") if c in agg.columns]
+    if not group_cols:
+        group_cols = ["pca_enabled"] if "pca_enabled" in agg.columns else ["pca_label"]
+    scale = 100.0 if percent_scale else 1.0
+
+    for _, sub in agg.groupby(group_cols, dropna=False):
         sub = sub.sort_values("samples_per_class")
+        classifier, pca_enabled = _config_key(sub.iloc[0], default_classifier)
+        color = config_color(classifier, pca_enabled)
+        label = config_legend_name(classifier, pca_enabled)
+
         x = sub["samples_per_class"].to_numpy()
-        y = sub[f"{metric}_mean"].to_numpy()
-        ci = sub[f"{metric}_ci95"].to_numpy()
+        y = sub[f"{metric}_mean"].to_numpy() * scale
+        std = sub[f"{metric}_std"].to_numpy() * scale
         if np.all(np.isnan(y)):
             continue
-        line, = ax.plot(x, y, marker="o", label=label)
-        ci_safe = np.nan_to_num(ci, nan=0.0)
-        ax.fill_between(x, y - ci_safe, y + ci_safe, alpha=0.18, color=line.get_color())
-        if has_systematic:
-            ci_sys = np.nan_to_num(sub["EDP_ci95_systematic"].to_numpy(), nan=0.0)
-            ax.fill_between(x, y - ci_sys, y + ci_sys, alpha=0.12, hatch="//",
-                             facecolor="none", edgecolor=line.get_color())
-    ax.set_title(title)
+        ax.plot(x, y, marker="o", markersize=3.5, lw=1.3, color=color, label=label)
+        std_safe = np.nan_to_num(std, nan=0.0)
+        ax.fill_between(x, y - std_safe, y + std_safe, alpha=0.16, color=color, linewidth=0)
+
     ax.set_xlabel("Reference samples per class")
-    ax.set_ylabel(title)
-    ax.grid(True, alpha=0.3)
-    if has_systematic:
-        ax.legend(title="Pipeline (band: seed CI; hatched: systematic baseline unc.)")
-    else:
-        ax.legend(title="Pipeline")
+    ax.set_ylabel(unit_label)
+    ax.grid(True, alpha=0.3, linewidth=0.5)
+    _set_sample_size_ticks(ax, agg)
+    if show_legend:
+        ax.legend(frameon=False, fontsize=7)
 
 
-def plot_paper_curves(agg: pd.DataFrame, fig_dir: Path):
+def _shared_legend(fig, agg: pd.DataFrame, default_classifier: Optional[str]) -> None:
+    """One legend below the grid: one column per classifier family (KNN |
+    K-Means | Nearest Centroid), no-PCA in the top row and the matching +PCA
+    entry directly underneath in the same column.
+
+    matplotlib's Legend fills column-major (down each column first, then the
+    next column) — NOT row-major. So the handles must be interleaved per
+    family, [dark_f1, light_f1, dark_f2, light_f2, ...], with ncol=len(families);
+    a [all-dark, then all-light] handle order (which would be right under a
+    row-major fill) actually scatters each pair across different columns.
+    """
+    families = _present_families(agg, default_classifier)
+    if not families:
+        return
+    handles, labels = [], []
+    for f in families:
+        handles.append(Line2D([0], [0], color=config_color(f, False), marker="o",
+                              markersize=4, lw=1.3))
+        labels.append(config_legend_name(f, False))
+        handles.append(Line2D([0], [0], color=config_color(f, True), marker="o",
+                              markersize=4, lw=1.3))
+        labels.append(config_legend_name(f, True))
+    fig.legend(handles, labels, loc="lower center", ncol=len(families),
+              frameon=False, bbox_to_anchor=(0.5, -0.02))
+
+
+def plot_paper_curves(agg: pd.DataFrame, fig_dir: Path, dataset_tag: str,
+                      default_classifier: Optional[str] = None):
+    """Dataset-level figures only (no per-experiment plots).
+
+    Every individual metric curve is kept (as requested), but only
+    `<dataset>_summary_grid.pdf` is meant for the paper — it gets the extra
+    Springer LNCS formatting pass (no header/suptitle, serif font sized for
+    camera-ready text, tight LNCS-column figure size, % units on accuracy).
+    """
     fig_dir.mkdir(parents=True, exist_ok=True)
 
-    # Individual figures
-    for metric, title in METRICS:
+    # Individual figures — one metric per file, full curve set incl. legend.
+    for metric, _ in METRICS:
+        unit_label, is_pct = _METRIC_UNITS.get(metric, (metric, False))
         fig, ax = plt.subplots(figsize=(8, 5))
-        _plot_metric_vs_samples(ax, agg, metric, title)
+        _plot_metric_vs_samples(ax, agg, metric, unit_label,
+                                default_classifier=default_classifier,
+                                percent_scale=is_pct)
+        ax.set_title(f"{dataset_tag}: {unit_label} vs. samples per class")
         fig.tight_layout()
-        fig.savefig(fig_dir / f"{metric}_vs_samples.png", dpi=150)
+        fig.savefig(fig_dir / f"{dataset_tag}_{metric}_vs_samples.pdf")
         plt.close(fig)
 
-    # 2×2 paper grid (accuracy, energy, memory, cpu)
-    grid_metrics = [("accuracy", "Accuracy"),
-                    ("EDP", "Energy-Delay Product (J)"),
-                    ("memory_rss_mb_mean", "Memory RSS (MB)"),
-                    ("cpu_percent_mean", "CPU (%)")]
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    for ax, (metric, title) in zip(axes.ravel(), grid_metrics):
-        _plot_metric_vs_samples(ax, agg, metric, title)
-    fig.suptitle("KNN benchmark — metrics vs reference-sample count (PCA vs no-PCA)", fontsize=14)
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
-    fig.savefig(fig_dir / "summary_grid.png", dpi=150)
-    plt.close(fig)
+    # 2×2 paper grid (accuracy, EDP, memory, CPU) — Springer LNCS camera-ready.
+    grid_metrics = ["accuracy", "EDP", "net_memory_rss_mb_mean", "latency_sum_ms"]
+    panel_tags = ["(a)", "(b)", "(c)", "(d)"]
+
+    # LNCS single-column text width is 122 mm; keep the whole grid inside it
+    # and use a serif face + small paper-appropriate font sizes.
+    lncs_width_in = 122.0 / 25.4
+    with plt.rc_context({
+        "font.family": "serif",
+        "font.size": 7,
+        "axes.labelsize": 7,
+        "axes.titlesize": 7,
+        "xtick.labelsize": 7,
+        "ytick.labelsize": 7,
+        "legend.fontsize": 7,
+        "axes.linewidth": 0.6,
+    }):
+        # Modest extra height for the 2-row (no-PCA / +PCA) legend below the grid.
+        fig, axes = plt.subplots(2, 2, figsize=(lncs_width_in, lncs_width_in * 0.84))
+        for ax, metric, tag in zip(axes.ravel(), grid_metrics, panel_tags):
+            unit_label, is_pct = _METRIC_UNITS.get(metric, (metric, False))
+            _plot_metric_vs_samples(ax, agg, metric, unit_label,
+                                    default_classifier=default_classifier,
+                                    show_legend=False, percent_scale=is_pct)
+            ax.text(0.02, 0.96, tag, transform=ax.transAxes, fontsize=7,
+                    fontweight="bold", va="top", ha="left")
+        # Single shared legend directly under the grid instead of a header/title —
+        # one column per family, no-PCA/+PCA stacked within it (see _shared_legend()).
+        fig.tight_layout(rect=[0, 0.05, 1, 1])
+        _shared_legend(fig, agg, default_classifier)
+        fig.savefig(fig_dir / f"{dataset_tag}_summary_grid.pdf")
+        plt.close(fig)
 
 
-def plot_pca_variance(summary: pd.DataFrame, fig_dir: Path):
+def plot_pca_variance(summary: pd.DataFrame, fig_dir: Path, dataset_tag: str):
     sub = summary[summary["pca_enabled"] == True].dropna(subset=["pca_explained_variance_pct"])
     if sub.empty:
         return
     by_comp = sub.groupby("pca_components")["pca_explained_variance_pct"].mean()
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.bar([str(int(c)) for c in by_comp.index], by_comp.values)
+    ax.bar([str(int(c)) for c in by_comp.index], by_comp.values,
+          color=_CLASSIFIER_COLORS.get("KNN", _DEFAULT_COLORS)[1])
     for i, v in enumerate(by_comp.values):
         ax.text(i, v, f"{v:.2f}%", ha="center", va="bottom")
-    ax.set_title("PCA explained variance")
+    ax.set_title(f"{dataset_tag}: PCA explained variance")
     ax.set_xlabel("PCA components")
     ax.set_ylabel("Explained variance (%)")
     ax.set_ylim(0, 105)
     fig.tight_layout()
-    fig.savefig(fig_dir / "pca_explained_variance.png", dpi=150)
+    fig.savefig(fig_dir / f"{dataset_tag}_pca_explained_variance.pdf")
     plt.close(fig)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Per-experiment resource timeline (the notebook's view, automated for all runs)
+# Power trace parsing (used by the clock-offset re-integration in step (i))
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _read_power_csv(power_csv: Path):
@@ -866,56 +1235,6 @@ def _read_power_csv(power_csv: Path):
         except (ValueError, TypeError):
             continue
     return ts, pw
-
-
-def per_experiment_timeline(exp_dir: Path, out_dir: Path):
-    merged_path = _latest(exp_dir.glob("merged_analysis_*.csv"))
-    power_path  = _latest(exp_dir.glob("power_*.csv"))
-    if merged_path is None:
-        return
-    df = pd.read_csv(merged_path)
-    if "timestamp_unix" not in df.columns:
-        return
-    t0 = pd.to_numeric(df["timestamp_unix"], errors="coerce").min()
-    df["t_rel"] = pd.to_numeric(df["timestamp_unix"], errors="coerce") - t0
-
-    have_power = power_path is not None
-    n_axes = 4 if have_power else 3
-    fig, axes = plt.subplots(n_axes, 1, figsize=(13, 2.4 * n_axes), sharex=True)
-    ai = 0
-
-    if have_power:
-        # Reuse the engine's parser: it converts the naive local ISO timestamps to
-        # true epoch seconds via datetime.timestamp() (tz-aware, resolution-safe).
-        ts_p, pw_list = _read_power_csv(power_path)
-        ts_p = np.asarray(ts_p, dtype=float)
-        pw = np.asarray(pw_list, dtype=float)
-        t_rel = ts_p - t0
-        axes[ai].plot(t_rel, pw, lw=0.8)
-        axes[ai].axhline(pw.mean(), ls="--", color="orange", label=f"avg {pw.mean():.2f} W")
-        axes[ai].axvline(0, ls=":", color="green", label="inference start")
-        axes[ai].set_ylabel("Power (W)"); axes[ai].legend(loc="upper right"); axes[ai].grid(alpha=0.3)
-        ai += 1
-
-    cpu = pd.to_numeric(df.get("cpu_percent_total"), errors="coerce")
-    axes[ai].plot(df["t_rel"], cpu.rolling(10, min_periods=1).mean(), lw=1.0)
-    axes[ai].set_ylabel("CPU (%)"); axes[ai].grid(alpha=0.3); ai += 1
-
-    rss = pd.to_numeric(df.get("process_rss_mb_resource"), errors="coerce")
-    axes[ai].plot(df["t_rel"], rss, lw=1.0)
-    axes[ai].set_ylabel("RSS (MB)"); axes[ai].grid(alpha=0.3); ai += 1
-
-    lat = pd.to_numeric(df.get("latency_ms"), errors="coerce")
-    axes[ai].plot(df["t_rel"], lat, lw=0.5, alpha=0.5)
-    axes[ai].plot(df["t_rel"], lat.rolling(20, min_periods=1).mean(), lw=1.5)
-    axes[ai].set_ylabel("Latency (ms)"); axes[ai].grid(alpha=0.3)
-    axes[ai].set_xlabel("Time since inference start (s)")
-
-    fig.suptitle(exp_dir.name)
-    fig.tight_layout(rect=[0, 0, 1, 0.98])
-    out_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_dir / f"{exp_dir.name}_timeline.png", dpi=130)
-    plt.close(fig)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -942,10 +1261,15 @@ def find_sweet_spot(agg: pd.DataFrame, frac: float = 0.99) -> Dict:
     return out
 
 
-def find_robust_saturation_point(agg: pd.DataFrame, frac: float = 0.95) -> Dict:
-    """Robust saturation point s*: smallest samples-per-class stage whose mean
-    accuracy reaches `frac` of the max mean accuracy AND whose margin above that
-    threshold exceeds the standard error of the mean (SEM) at that stage.
+def _robust_saturation_by_group(agg: pd.DataFrame, group_cols: Sequence[str],
+                                frac: float = 0.95) -> Dict[Tuple, Dict]:
+    """Core of the robust saturation point s* (step iv): smallest samples-per-class
+    stage whose mean accuracy reaches `frac` of the max mean accuracy AND whose
+    margin above that threshold exceeds the standard error of the mean (SEM) at
+    that stage — keyed by the raw `group_cols` tuple rather than a display label,
+    so callers can join it back onto any grouping of `agg` (per-label report dict
+    via find_robust_saturation_point(), or per-classifier tuple via
+    compute_suitability()).
 
     The SEM check guards against picking a stage that only clears the threshold
     due to seed noise — the same size-2 cell that happens to score high by luck.
@@ -953,9 +1277,9 @@ def find_robust_saturation_point(agg: pd.DataFrame, frac: float = 0.95) -> Dict:
     that data (n_seeds<2) is accepted on the threshold alone, since robustness
     can't be assessed there.
     """
-    out = {}
-    label_col = "plot_label" if "plot_label" in agg.columns else "pca_label"
-    for label, sub in agg.groupby(label_col):
+    out: Dict[Tuple, Dict] = {}
+    for keys, sub in agg.groupby(list(group_cols), dropna=False):
+        key = keys if isinstance(keys, tuple) else (keys,)
         sub = sub.sort_values("samples_per_class")
         acc = sub["accuracy_mean"]
         if acc.notna().sum() == 0:
@@ -979,7 +1303,7 @@ def find_robust_saturation_point(agg: pd.DataFrame, frac: float = 0.95) -> Dict:
                 break
 
         if s_star is not None:
-            out[label] = {
+            out[key] = {
                 "max_accuracy": max_acc,
                 "target_accuracy": float(target),
                 "robust_saturation_samples_per_class": s_star,
@@ -987,35 +1311,56 @@ def find_robust_saturation_point(agg: pd.DataFrame, frac: float = 0.95) -> Dict:
     return out
 
 
+def find_robust_saturation_point(agg: pd.DataFrame, frac: float = 0.95) -> Dict:
+    """Robust saturation point s*, keyed by the plot/pca display label (report use)."""
+    label_col = "plot_label" if "plot_label" in agg.columns else "pca_label"
+    by_group = _robust_saturation_by_group(agg, [label_col], frac=frac)
+    return {key[0]: val for key, val in by_group.items()}
+
+
+def _saturation_by_group(agg: pd.DataFrame, group_cols: Sequence[str],
+                         frac: float = 0.95) -> Dict[Tuple, int]:
+    """Robust saturation point s*, keyed by the raw group tuple (e.g.
+    (classifier_label, pca_enabled)) — used by compute_suitability()."""
+    by_group = _robust_saturation_by_group(agg, group_cols, frac=frac)
+    return {key: val["robust_saturation_samples_per_class"] for key, val in by_group.items()}
+
+
 def compute_suitability(
     agg: pd.DataFrame,
     s_min: Optional[int] = None,
     ram_budget_mb: Optional[float] = None,
+    default_classifier: Optional[str] = None,
 ) -> pd.DataFrame:
     """Suitability_c = Acc_bar_c / (EDP_bar_c + sigma_EDP_c) * (s_min / s*_c) per
-    configuration c (grouped the same way `agg` already is — typically
-    classifier_type x pca_label).
+    configuration c (classifier_type x pca_label — step (iv)/(v) of the paper).
 
     EDP_bar_c/sigma_EDP_c are the mean/std of the already seed-averaged per-stage
     EDP (aggregate()'s "EDP_mean" column) taken ACROSS samples-per-class stages —
     sigma_EDP_c therefore captures energy-cost growth over the sample-size
     trajectory, not seed-to-seed noise (that's already averaged out per stage).
 
-    Memory is deliberately excluded from the score; instead `feasible` is a
-    pass/fail gate against `ram_budget_mb` using the worst case (max over stages)
-    of peak RSS per configuration, not the mean — RAM grows monotonically with
+    Peak memory footprint: the average (baseline-subtracted) RAM utilization per
+    stage (aggregate()'s "net_memory_rss_mb_mean_mean") taken at its worst
+    sample-size stage (max over stages) — RAM grows monotonically with
     samples_per_class for KNN, so a config can look fine on average and still
-    exceed the budget at the largest sample count.
+    exceed the budget at the largest sample count. Used only as a feasibility
+    filter against `ram_budget_mb`, never folded into the suitability score itself.
     """
-    label_col = "plot_label" if "plot_label" in agg.columns else "pca_label"
+    group_cols = [c for c in ("classifier_label", "pca_enabled") if c in agg.columns]
+    if not group_cols:
+        group_cols = ["pca_enabled"] if "pca_enabled" in agg.columns else ["pca_label"]
     if s_min is None:
         s_min = int(agg["samples_per_class"].min())
 
-    saturation = find_robust_saturation_point(agg, frac=0.95)
+    saturation_by_group = _saturation_by_group(agg, group_cols, frac=0.95)
 
     rows = []
-    for label, sub in agg.groupby(label_col):
+    for keys, sub in agg.groupby(group_cols, dropna=False):
         sub = sub.sort_values("samples_per_class")
+        classifier, pca_enabled = _config_key(sub.iloc[0], default_classifier)
+        group_key = keys if isinstance(keys, tuple) else (keys,)
+
         acc_bar = sub["accuracy_mean"].mean()
 
         edp_per_stage = sub["EDP_mean"] if "EDP_mean" in sub.columns else pd.Series(dtype=float)
@@ -1037,10 +1382,10 @@ def compute_suitability(
             else np.nan
         )
 
-        mem_col = "memory_rss_mb_max_mean" if "memory_rss_mb_max_mean" in sub.columns else None
+        mem_col = "net_memory_rss_mb_mean_mean" if "net_memory_rss_mb_mean_mean" in sub.columns else None
         mem_feasibility = sub[mem_col].max() if mem_col else np.nan
 
-        s_star = saturation.get(label, {}).get("robust_saturation_samples_per_class")
+        s_star = saturation_by_group.get(group_key)
 
         if pd.notna(acc_bar) and pd.notna(edp_bar) and pd.notna(sigma_edp) and s_star:
             denom = edp_bar + sigma_edp
@@ -1055,7 +1400,9 @@ def compute_suitability(
         )
 
         rows.append({
-            "config": label,
+            "config": config_display_name(classifier, pca_enabled),
+            "classifier_label": classifier,
+            "pca_enabled": pca_enabled,
             "accuracy_bar": acc_bar,
             "EDP_bar": edp_bar,
             "sigma_EDP": sigma_edp,
@@ -1072,6 +1419,65 @@ def compute_suitability(
     out = pd.DataFrame(rows)
     if not out.empty:
         out = out.sort_values("suitability", ascending=False, na_position="last")
+    return out
+
+
+def _round_sig(x: pd.Series, sig: int = 3) -> pd.Series:
+    """Round to `sig` significant figures instead of a fixed decimal count.
+
+    EDP spans two-plus orders of magnitude across datasets (~5e-3 J for
+    CIFAR-10/Imagenette, ~5e-5 J for MNIST) — a fixed .round(4) reads fine for
+    the former and collapses the latter to 0.0000 for almost every row. Sig-fig
+    rounding keeps the same number of meaningful digits regardless of scale.
+    """
+    vals = pd.to_numeric(x, errors="coerce").to_numpy(dtype=float)
+    out = np.full_like(vals, np.nan)
+    finite_nonzero = np.isfinite(vals) & (vals != 0)
+    magnitude = np.floor(np.log10(np.abs(vals[finite_nonzero])))
+    decimals = (sig - 1 - magnitude).astype(int)
+    out[finite_nonzero] = [round(v, d) for v, d in zip(vals[finite_nonzero], decimals)]
+    out[np.isfinite(vals) & (vals == 0)] = 0.0
+    return pd.Series(out, index=x.index)
+
+
+def build_suitability_table(suitability: pd.DataFrame, dataset_tag: str) -> pd.DataFrame:
+    """Format compute_suitability()'s output as the paper's LaTeX table
+    (tab:suitability): Case, Config, Acc (%), EDP-bar, sigma_EDP, s*, Suit. (%),
+    RAM (MB), RAM (%). Suit. and RAM (%) are relative to the best-performing
+    configuration and the RAM budget, respectively — matching the table
+    caption; RAM (MB) is the underlying absolute peak memory footprint (step
+    iv) that RAM (%) is computed from. One CSV per dataset, but the "Case"
+    column repeats the dataset name per row so the per-dataset CSVs
+    concatenate directly into the combined multirow table.
+    """
+    if suitability.empty:
+        return pd.DataFrame(columns=["Case", "Config", "Acc (%)", "EDP_bar", "sigma_EDP",
+                                     "s_star", "Suit (%)", "RAM (MB)", "RAM (%)"])
+
+    max_suit = suitability["suitability"].max()
+    ram_budget = suitability["ram_budget_mb"].dropna()
+    ram_budget = float(ram_budget.iloc[0]) if len(ram_budget) else np.nan
+
+    out = pd.DataFrame({
+        "Case": dataset_tag,
+        "Config": suitability["config"],
+        "Acc (%)": (suitability["accuracy_bar"] * 100).round(2),
+        "EDP_bar": _round_sig(suitability["EDP_bar"], sig=3),
+        "sigma_EDP": _round_sig(suitability["sigma_EDP"], sig=3),
+        "s_star": suitability["s_star"],
+        "Suit (%)": ((suitability["suitability"] / max_suit) * 100).round(1)
+                    if pd.notna(max_suit) and max_suit > 0 else np.nan,
+        "RAM (MB)": suitability["memory_feasibility_mb"].round(3),
+        "RAM (%)": ((suitability["memory_feasibility_mb"] / ram_budget) * 100).round(3)
+                   if pd.notna(ram_budget) and ram_budget > 0 else np.nan,
+    })
+    out = out.sort_values("Suit (%)", ascending=False, na_position="last").reset_index(drop=True)
+
+    # No robust saturation point (step iv's SEM check never passed) leaves
+    # s_star/suitability undefined for that configuration — an explicit "n/a"
+    # marks this as a deliberate methodological exclusion, not a missing value.
+    out["s_star"] = out["s_star"].apply(lambda v: "n/a" if pd.isna(v) else str(int(v)))
+    out["Suit (%)"] = out["Suit (%)"].apply(lambda v: "n/a" if pd.isna(v) else v)
     return out
 
 
@@ -1117,7 +1523,8 @@ def _table(df: pd.DataFrame) -> str:
 
 
 def write_report(summary: pd.DataFrame, agg: pd.DataFrame,
-                 sweet: Dict, pca: Dict, out_path: Path):
+                 sweet: Dict, pca: Dict, suitability: pd.DataFrame,
+                 dataset_tag: str, out_path: Path):
     n_exp = len(summary)
     seeds = sorted(summary["seed"].dropna().unique().tolist())
     spc = sorted(summary["samples_per_class"].dropna().unique().tolist())
@@ -1156,13 +1563,20 @@ def write_report(summary: pd.DataFrame, agg: pd.DataFrame,
                  "regardless of how tight the seed-CI looks.")
     lines.append("- PCA vs no-PCA is compared **paired** at matched (samples, seed) using the "
                  "Wilcoxon signed-rank test where ≥5 pairs are available.")
-    lines.append("- **Energy** is the external Voltcraft measurement, baseline-subtracted against "
-                 "the local warm-idle blocks bracketing each cell (`EDP`) → marginal cost of one "
-                 "inference, independent of duty cycle.")
-    lines.append("- **CPU%** is the system-wide, duty-cycled value at the configured rover cadence "
-                 "(not peak inference CPU).")
-    lines.append("- **Memory (RSS)** includes the Python+TFLite runtime (~tens of MB); the marginal "
-                 "store for samples is the analytical `knn_store_kb` column (spc × classes × dim × 4 B).")
+    lines.append("- **Clock alignment**: an experiment's PC<->Pi clock offset is only realigned "
+                 f"(re-integrating the raw power trace) once it reaches {CLOCK_OFFSET_REALIGN_THRESHOLD_S}s "
+                 "— one energy-sampling period (8 Hz); below that, the raw metadata reading is used "
+                 "unchanged (`clock_realigned` flags which rule applied per experiment).")
+    lines.append("- **Energy** is the (possibly clock-realigned) external Voltcraft measurement, "
+                 "baseline-subtracted against the local warm-idle blocks bracketing each cell (`EDP`) "
+                 "→ marginal cost of one inference, independent of duty cycle.")
+    lines.append("- **CPU% and Memory (RSS)** are likewise baseline-subtracted against the same "
+                 "bracketing warm-idle blocks (`net_cpu_percent_mean`, `net_memory_rss_mb_mean`); "
+                 "raw (non-baseline-subtracted) values remain available for reference. CPU% is the "
+                 "system-wide, duty-cycled value at the configured rover cadence (not peak inference "
+                 "CPU). Memory (RSS) includes the Python+TFLite runtime baseline it is corrected "
+                 "against; the marginal store for samples is the analytical `knn_store_kb` column "
+                 "(spc × classes × dim × 4 B).")
     lines.append("")
 
     lines.append("## 3. Sweet spot (accuracy)\n")
@@ -1192,18 +1606,36 @@ def write_report(summary: pd.DataFrame, agg: pd.DataFrame,
     lines.append("## 5. Aggregated table (mean over seeds)\n")
     show_cols = ["pca_label", "samples_per_class", "n_seeds",
                  "accuracy_mean", "accuracy_ci95",
-                 "cpu_percent_mean_mean",
-                 "memory_rss_mb_mean_mean", "latency_ms_mean_mean",
+                 "net_cpu_percent_mean_mean",
+                 "net_memory_rss_mb_mean_mean", "latency_ms_mean_mean",
                  "EDP_mean", "EDP_ci95", "EDP_ci95_systematic"]
     show_cols = [c for c in show_cols if c in agg.columns]
     lines.append(_table(agg[show_cols].round(4)))
     lines.append("")
 
-    lines.append("## 6. Figures\n")
-    lines.append("- `figures/summary_grid.png` — the paper's 2×2 (accuracy/energy/memory/CPU vs samples)")
-    lines.append("- `figures/<metric>_vs_samples.png` — individual curves with CI bands")
-    lines.append("- `figures/pca_explained_variance.png`")
-    lines.append("- `per_experiment/<id>_timeline.png` — power/CPU/RAM/latency over time per run")
+    lines.append("## 6. Suitability per configuration (step v)\n")
+    lines.append("- Suitability_c = Acc_bar_c / (EDP_bar_c + sigma_EDP_c) * (s_min / s*_c), "
+                 "s*_c the robust saturation point (step iv); `feasible` gates on the peak "
+                 "per-stage average RAM utilization against the configured RAM budget.")
+    if not suitability.empty:
+        show_cols_suit = ["config", "accuracy_bar", "EDP_bar", "sigma_EDP", "s_star",
+                          "memory_feasibility_mb", "feasible", "suitability"]
+        show_cols_suit = [c for c in show_cols_suit if c in suitability.columns]
+        lines.append(_table(suitability[show_cols_suit].round(4)))
+    else:
+        lines.append("_Not enough sample-size stages to compute a suitability score._")
+    lines.append("")
+
+    lines.append("## 7. Figures\n")
+    lines.append(f"- `figures/{dataset_tag}_summary_grid.pdf` — the paper figure "
+                 "(2×2: accuracy/EDP/memory/CPU vs samples, Springer LNCS formatted)")
+    lines.append(f"- `figures/{dataset_tag}_<metric>_vs_samples.pdf` — individual curves with a sample-std band")
+    lines.append(f"- `figures/{dataset_tag}_pca_explained_variance.pdf`")
+    lines.append("")
+
+    lines.append("## 8. Suitability table (LaTeX-ready)\n")
+    lines.append("- `suitability_table.csv` — Case/Config/Acc (%)/EDP_bar/sigma_EDP/s_star/"
+                 "Suit (%)/RAM (%), ready to be typeset as the paper's suitability table.")
     lines.append("")
 
     out_path.write_text("\n".join(lines), encoding="utf-8")
@@ -1213,14 +1645,85 @@ def write_report(summary: pd.DataFrame, agg: pd.DataFrame,
 # Main
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _analyze_group(
+    summary: pd.DataFrame,
+    confusion_full: pd.DataFrame,
+    out_dir: Path,
+    ram_budget_mb: Optional[float],
+    tag: Optional[str] = None,
+) -> None:
+    """Run the aggregate/plot/report pipeline for one slice of `summary` (either the
+    whole campaign, or a single dataset group's rows), writing everything under
+    `out_dir`. Split out of main() so a multi-dataset campaign can produce one
+    self-contained figures+report bundle per dataset instead of one plot with a
+    line per (scenario x pca) combination — see main()'s per-dataset-group loop.
+    Figures are dataset-level only; `tag` (the dataset name) is stamped into
+    every figure filename.
+    """
+    prefix = f"[analyze:{tag}]" if tag else "[analyze]"
+    dataset_tag = tag or "combined"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    multi_scenario = summary["scenario_name"].nunique(dropna=True) > 1
+    if multi_scenario:
+        group_cols = ["scenario_name", "classifier_label", "pca_label",
+                      "pca_enabled", "samples_per_class"]
+    else:
+        group_cols = None
+    agg = aggregate(summary, group_cols)
+    if multi_scenario:
+        label_col = "classifier_label" if summary["classifier_label"].nunique(dropna=True) > 1 else "scenario_name"
+        agg["plot_label"] = agg[label_col].fillna("unknown") + " / " + agg["pca_label"].fillna("unknown")
+    agg.to_csv(out_dir / "aggregated_by_config.csv", index=False)
+    print(f"{prefix} {len(agg)} (pca x samples) cells -> aggregated_by_config.csv")
+
+    if not confusion_full.empty:
+        confusion = confusion_full[confusion_full["run_id"].isin(summary["run_id"])]
+        if not confusion.empty:
+            confusion.to_csv(out_dir / "confusion_matrix_per_class.csv", index=False)
+            print(f"{prefix} {len(confusion)} (experiment x class) rows -> confusion_matrix_per_class.csv")
+
+    classifiers = summary["classifier_label"].dropna().unique().tolist()
+    default_classifier = classifiers[0] if len(classifiers) == 1 else None
+
+    fig_dir = out_dir / "figures"
+    plot_paper_curves(agg, fig_dir, dataset_tag, default_classifier=default_classifier)
+    plot_pca_variance(summary, fig_dir, dataset_tag)
+    print(f"{prefix} figures -> {fig_dir}")
+
+    # Step (v): suitability per configuration, RAM-budget-gated (step iv's
+    # peak memory footprint doubles as the feasibility filter here).
+    suitability = compute_suitability(agg, ram_budget_mb=ram_budget_mb,
+                                      default_classifier=default_classifier)
+    suitability.to_csv(out_dir / "suitability_by_config.csv", index=False)
+    suitability_table = build_suitability_table(suitability, dataset_tag)
+    suitability_table.to_csv(out_dir / "suitability_table.csv", index=False)
+    print(f"{prefix} {len(suitability)} configuration(s) -> suitability_by_config.csv / suitability_table.csv")
+
+    sweet = find_sweet_spot(agg)
+    if multi_scenario:
+        pca = {}
+        for scenario, sub in summary.groupby("scenario_name"):
+            for metric, rec in pca_effect(sub).items():
+                pca[f"{scenario} / {metric}"] = rec
+    else:
+        pca = pca_effect(summary)
+    write_report(summary, agg, sweet, pca, suitability, dataset_tag, out_dir / "analysis_report.md")
+    print(f"{prefix} report -> {out_dir / 'analysis_report.md'}")
+
+
 def main():
     here = Path(__file__).resolve().parent
     ap = argparse.ArgumentParser(description="Analyze KNN benchmark results")
     ap.add_argument("--results-dir", type=Path, default=here.parent / "results")
     ap.add_argument("--out-dir",     type=Path, default=None,
                     help="Default: <results-dir>/analysis")
-    ap.add_argument("--no-per-experiment", action="store_true",
-                    help="Skip per-experiment resource timelines")
+    ap.add_argument("--ram-budget-mb", type=float, default=512.0,
+                    help="On-device RAM budget used as the suitability feasibility "
+                         "filter (default: 512 MB, the Pi Zero 2W's physical RAM)")
+    ap.add_argument("--no-split-by-dataset", action="store_true",
+                    help="Produce one combined figures/report bundle instead of "
+                         "one per dataset_name (cifar10 / imagenette / mnist / ...)")
     args = ap.parse_args()
 
     results_dir = args.results_dir.resolve()
@@ -1232,44 +1735,32 @@ def main():
     summary.to_csv(out_dir / "experiment_summary.csv", index=False)
     print(f"[analyze] {len(summary)} experiments -> experiment_summary.csv")
 
-    multi_scenario = summary["scenario_name"].nunique(dropna=True) > 1
-    if multi_scenario:
-        group_cols = ["scenario_name", "classifier_label", "pca_label",
-                      "pca_enabled", "samples_per_class"]
-    else:
-        group_cols = None
-    agg = aggregate(summary, group_cols)
-    if multi_scenario:
-        agg["plot_label"] = agg["scenario_name"].fillna("unknown") + " / " + agg["pca_label"].fillna("unknown")
-    agg.to_csv(out_dir / "aggregated_by_config.csv", index=False)
-    print(f"[analyze] {len(agg)} (pca x samples) cells -> aggregated_by_config.csv")
-
     confusion = build_confusion_table(results_dir)
     if not confusion.empty:
         confusion.to_csv(out_dir / "confusion_matrix_per_class.csv", index=False)
         print(f"[analyze] {len(confusion)} (experiment x class) rows -> confusion_matrix_per_class.csv")
 
-    fig_dir = out_dir / "figures"
-    plot_paper_curves(agg, fig_dir)
-    plot_pca_variance(summary, fig_dir)
-    print(f"[analyze] figures -> {fig_dir}")
+    correction_summary = build_correction_summary(summary)
+    correction_summary.to_csv(out_dir / "correction_summary.csv", index=False)
+    print(f"[analyze] {len(correction_summary)} dataset row(s) -> correction_summary.csv "
+         "(clock-offset deviation + baseline correction audit, step i)")
 
-    if not args.no_per_experiment:
-        pe_dir = out_dir / "per_experiment"
-        for exp_dir in _discover_experiment_dirs(results_dir):
-            per_experiment_timeline(exp_dir, pe_dir)
-        print(f"[analyze] per-experiment timelines -> {pe_dir}")
+    latency_summary = build_latency_summary(summary)
+    latency_summary.to_csv(out_dir / "latency_summary.csv", index=False)
+    print(f"[analyze] {len(latency_summary)} dataset row(s) -> latency_summary.csv "
+         "(total on-device inference latency, summed over all configs/seeds/sample-sizes)")
 
-    sweet = find_sweet_spot(agg)
-    if multi_scenario:
-        pca = {}
-        for scenario, sub in summary.groupby("scenario_name"):
-            for metric, rec in pca_effect(sub).items():
-                pca[f"{scenario} / {metric}"] = rec
+    dataset_groups = sorted(summary["dataset_name"].dropna().unique().tolist())
+
+    if not args.no_split_by_dataset and len(dataset_groups) > 1:
+        print(f"[analyze] splitting into per-dataset bundles: {dataset_groups}")
+        for group in dataset_groups:
+            group_summary = summary[summary["dataset_name"] == group].reset_index(drop=True)
+            _analyze_group(group_summary, confusion, out_dir / group,
+                           args.ram_budget_mb, tag=group)
     else:
-        pca = pca_effect(summary)
-    write_report(summary, agg, sweet, pca, out_dir / "analysis_report.md")
-    print(f"[analyze] report -> {out_dir / 'analysis_report.md'}")
+        _analyze_group(summary, confusion, out_dir, args.ram_budget_mb)
+
     print("[analyze] done.")
 
 
