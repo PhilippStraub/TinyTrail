@@ -1,0 +1,29 @@
+<svg width="100%" viewBox="0 0 680 140" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Strukturelle Höhen-Normalisierung über GSD</title>
+<desc>Pixelmessungen werden mithilfe der aktuellen Flughöhe in höhenunabhängige Realgrößen in Zentimetern umgerechnet, bevor sie gespeichert oder gelernt werden. Bei der Inferenz wird die reale Größe mit der aktuellen Flughöhe zurück in eine Pixel-Box umgerechnet.</desc>
+<style>
+text{font-family:Arial,sans-serif;}
+.th{font-size:14px;font-weight:600;fill:#2c2c2a;}
+.ts{font-size:12px;fill:#5f5e5a;}
+.box{fill:#f1efe8;stroke:#888780;}
+.arr{stroke:#5f5e5a;stroke-width:1.5;fill:none;}
+.c-blue rect{fill:#E6F1FB;stroke:#185FA5;stroke-width:0.5;}
+.c-purple rect{fill:#EEEDFE;stroke:#534AB7;stroke-width:0.5;}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#5f5e5a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<g class="box"><rect x="50" y="40" width="130" height="56" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="115" y="58" text-anchor="middle" dominant-baseline="central">Rohmessung</text>
+<text class="ts" x="115" y="76" text-anchor="middle" dominant-baseline="central">in Pixeln</text>
+<g class="c-blue"><rect x="200" y="40" width="130" height="56" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="265" y="58" text-anchor="middle" dominant-baseline="central" fill="#0C447C">GSD-Korrektur</text>
+<text class="ts" x="265" y="76" text-anchor="middle" dominant-baseline="central" fill="#0C447C">akt. Flughöhe</text>
+<g class="c-purple"><rect x="350" y="40" width="130" height="56" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="415" y="58" text-anchor="middle" dominant-baseline="central" fill="#3C3489">Größe in cm</text>
+<text class="ts" x="415" y="76" text-anchor="middle" dominant-baseline="central" fill="#3C3489">höhenunabhängig</text>
+<g class="c-blue"><rect x="500" y="40" width="130" height="56" rx="8" stroke-width="0.5"/></g>
+<text class="th" x="565" y="58" text-anchor="middle" dominant-baseline="central" fill="#0C447C">Rückrechnung</text>
+<text class="ts" x="565" y="76" text-anchor="middle" dominant-baseline="central" fill="#0C447C">cm → Pixel</text>
+<line x1="180" y1="68" x2="200" y2="68" class="arr" marker-end="url(#arrow)"/>
+<line x1="330" y1="68" x2="350" y2="68" class="arr" marker-end="url(#arrow)"/>
+<line x1="480" y1="68" x2="500" y2="68" class="arr" marker-end="url(#arrow)"/>
+</svg>

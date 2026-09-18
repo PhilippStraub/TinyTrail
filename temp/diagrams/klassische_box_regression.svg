@@ -1,0 +1,22 @@
+<svg width="100%" viewBox="0 0 680 350" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Klassische Box-Regression</title>
+<desc>Eine Anker-Box mit fester Position und Größe wird durch gelernte Offsets (Δx, Δy, Δw, Δh) auf die vorhergesagte Objekt-Box verschoben und skaliert.</desc>
+<style>
+text{font-family:Arial,sans-serif;}
+.th{font-size:14px;font-weight:600;fill:#2c2c2a;}
+.ts{font-size:12px;fill:#5f5e5a;}
+.box{fill:#f1efe8;stroke:#888780;}
+.arr{stroke:#5f5e5a;stroke-width:1.5;fill:none;}
+.c-coral rect{fill:#FAECE7;stroke:#993C1D;stroke-width:0.5;}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#5f5e5a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect x="60" y="50" width="560" height="240" rx="12" class="box" stroke-width="0.5"/>
+<rect x="180" y="100" width="150" height="150" rx="4" fill="none" stroke="#5f5e5a" stroke-width="1.5" stroke-dasharray="5 4"/>
+<g class="c-coral"><rect x="290" y="140" width="180" height="130" rx="4" stroke-width="0.5"/></g>
+<line x1="255" y1="175" x2="380" y2="205" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="310" y="90" text-anchor="middle">Offset (Δx, Δy, Δw, Δh)</text>
+<rect x="150" y="305" width="24" height="14" fill="none" stroke="#5f5e5a" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text class="ts" x="182" y="312" dominant-baseline="central">anchor (fest)</text>
+<g class="c-coral"><rect x="380" y="305" width="24" height="14" rx="3" stroke-width="0.5"/></g>
+<text class="ts" x="412" y="312" dominant-baseline="central">vorhergesagt</text>
+</svg>

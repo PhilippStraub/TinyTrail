@@ -1,0 +1,33 @@
+<svg width="100%" viewBox="0 0 680 380" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Wie eine Grid-Zelle "feuert"</title>
+<desc>Der Feature-Vektor einer Grid-Zelle wird mit den gespeicherten Prototypen verglichen. Liegt der nächste Prototyp im Hintergrund-Cluster, feuert die Zelle nicht; liegt er in einem Klassen-Cluster, feuert die Zelle mit dieser Klasse.</desc>
+<style>
+text{font-family:Arial,sans-serif;}
+.ts{font-size:12px;fill:#5f5e5a;}
+.th{font-size:14px;font-weight:600;fill:#2c2c2a;}
+.leader{stroke:#888780;stroke-width:1;stroke-dasharray:3,3;fill:none;}
+</style>
+<rect x="50" y="40" width="580" height="300" rx="16" fill="#f1efe8" stroke="#888780" stroke-width="1" stroke-dasharray="6 4"/>
+<text class="th" x="70" y="65">Feature-Raum</text>
+<text class="ts" x="70" y="82">gespeicherte Prototypen</text>
+<text class="ts" x="160" y="135" text-anchor="middle">Hintergrund-Prototypen</text>
+<circle cx="140" cy="170" r="5" fill="#888780"/>
+<circle cx="165" cy="160" r="5" fill="#888780"/>
+<circle cx="150" cy="195" r="5" fill="#888780"/>
+<circle cx="175" cy="185" r="5" fill="#888780"/>
+<circle cx="155" cy="175" r="5" fill="#888780"/>
+<text class="ts" x="480" y="135" text-anchor="middle">Klassen-Prototypen (z.B. Stufe A)</text>
+<circle cx="460" cy="170" r="5" fill="#D85A30"/>
+<circle cx="495" cy="165" r="5" fill="#D85A30"/>
+<circle cx="470" cy="195" r="5" fill="#D85A30"/>
+<circle cx="500" cy="190" r="5" fill="#D85A30"/>
+<circle cx="480" cy="175" r="5" fill="#D85A30"/>
+<line x1="230" y1="230" x2="175" y2="185" class="leader"/>
+<circle cx="230" cy="230" r="7" fill="none" stroke="#2c2c2a" stroke-width="2"/>
+<text class="ts" x="230" y="250" text-anchor="middle">Zelle: über Boden</text>
+<text class="ts" x="230" y="268" text-anchor="middle">→ feuert nicht</text>
+<line x1="400" y1="230" x2="460" y2="170" class="leader"/>
+<circle cx="400" cy="230" r="7" fill="none" stroke="#2c2c2a" stroke-width="2"/>
+<text class="ts" x="400" y="250" text-anchor="middle">Zelle: über Pflanze</text>
+<text class="ts" x="400" y="268" text-anchor="middle">→ feuert: Stufe A</text>
+</svg>
