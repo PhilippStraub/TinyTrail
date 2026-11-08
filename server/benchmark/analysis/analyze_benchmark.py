@@ -959,7 +959,7 @@ METRICS = [
     ("latency_ms_mean",       "Latency (ms)"),
     ("latency_sum_ms",        "Total inference time (ms)"),
     ("net_avg_power_W_local", "Net avg power, local baseline (W)"),
-    ("EDP",                   "Energy-Delay Product (J)"),
+    ("EDP",                   "Net energy per inference (J)"),
 ]
 
 
@@ -1036,7 +1036,7 @@ _METRIC_UNITS: Dict[str, Tuple[str, bool]] = {
     "latency_ms_mean":    ("Latency (ms)", False),
     "latency_sum_ms":     ("Total inference time (ms)", False),
     "net_avg_power_W_local": ("Net avg. power (W)", False),
-    "EDP":                ("EDP (J)", False),
+    "EDP":                ("Energy per inference (J)", False),
 }
 
 

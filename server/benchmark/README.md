@@ -435,6 +435,12 @@ the analysis). No manual idle-power measurement step is needed. See
 [`analysis/README.md`](analysis/README.md) §2.1 for the `baseline_summary.json` field
 reference and §5 for how the correction is computed.
 
+> **Note on the `EDP` column:** for historical reasons, the analysis column `EDP` (and derived
+> columns such as `EDP_mean`, `EDP_std`, `sigma_EDP`) holds the **net energy per inference**,
+> E = P̄ · T̄ in joules (J), i.e., the baseline-corrected average power multiplied by the mean
+> inference time. It is *not* the energy-delay product (E · T, in J·s). Figures label this
+> quantity as "Energy per inference (J)", consistent with the paper.
+
 ## Result Attribution & Energy-Data Integrity (2026-07-20)
 
 **Relevant for anyone reviewing the measurement infrastructure / power-energy setup:**
