@@ -18,7 +18,7 @@ Access the public dataset of the rover-lab here: [`Rover dataset`](https://huggi
 The evaluation process conducts controlled experiments on the target hardware of the selected use case, based on the user-provided parameterization. To support in the execution of steps that must handle high combinatorics, we developed TinyTrail. The tool supports model training, experimentation, deployment and metric measurement according to process parameters.
 
 
-### Tool Archicture Overview
+### Tool Archicture Overview (standalone TinyTrail execution)
 
 
 <p align="center">
