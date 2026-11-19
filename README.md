@@ -7,6 +7,8 @@ In this repository, the *TinyTrail* tool and results for our paper titled "*Twin
 
 ### Access the Empirical Data of the Paper
 
+The replication package of the paper can be downloaded here: [`replication-package.zip`](replication-package.zip).
+
 The empirical data of our paper can be found here: [`server/benchmark/results`](server/benchmark/results).
 
 Access the public dataset of the rover-lab here: [`Rover dataset`](https://huggingface.co/datasets/Fundulus/rover-lab).
