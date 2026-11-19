@@ -1,6 +1,6 @@
-# Towards Configuring On-Device Learning for Resource-Constrained Use Cases: A Tool-Supported Evaluation Process (TinyTrail Repository)
+# Twin-Ready On-Device Learning: Selecting ML Model Configurations under Resource Constraints (TinyTrail Repository)
 
-In this repository, the *TinyTrail* tool and results for our paper titled "*Towards Configuring On-Device Learning for Resource-Constrained Use Cases: A Tool-Supported Evaluation Process*" can be accessed. In our paper, we present and validate the tool-supported evaluation process that enables the automatic, empirical evaluation of on-device learning configurations through metric collection and use case-specific suitability estimation, to aid decision-making in product development. 
+In this repository, the *TinyTrail* tool and results for our paper titled "*Twin-Ready On-Device Learning: Selecting ML Model Configurations under Resource Constraints*" can be accessed. In our paper, we present and validate the tool-supported evaluation process that enables the automatic, empirical evaluation of on-device learning configurations through metric collection and use case-specific suitability estimation, to aid decision-making before digital twin deployment. 
 *Currently, the contributed paper is under review.* However, all data supporting the findings of our study as well as the tool can be publicly accessed in this repository. 
 
 
@@ -11,7 +11,7 @@ The empirical data of our paper can be found here: [`server/benchmark/results`](
 
 Access the public dataset of the rover-lab here: [`Rover dataset`](https://huggingface.co/datasets/Fundulus/rover-lab).
 
-# Evaluation Process Overview
+# The TinyTrail Evaluation Process Overview
 *Details on the evaluation process can be retrieved from the paper*. A short summary for proper repository usage will be provided on acceptance. 
 
 ## Tool Support: TinyTrail 
